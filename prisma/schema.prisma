@@ -1,0 +1,505 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  CLIENT
+  EDITOR
+  SUPER_ADMIN
+}
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PROCESSING
+  PUBLISHED
+  PARTIAL_FAILED
+  FAILED
+}
+
+enum SocialPlatform {
+  META_FACEBOOK
+  META_INSTAGRAM
+  LINKEDIN
+  TWITTER_X
+  YOUTUBE
+  REDDIT
+  GLASSDOOR
+}
+
+enum ShowcaseCategory {
+  SAAS
+  ENTERPRISE_WEB
+  ECOMMERCE
+  AI_AUTOMATION
+  MOBILE
+  OTHER
+}
+
+enum ShowcaseBadge {
+  NEW
+  BETA
+  UPDATED
+}
+
+enum LeadSource {
+  ESTIMATOR
+  QUICK_CALLBACK
+  BOOKING
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  PROPOSAL_SENT
+  WON
+  ARCHIVED
+}
+
+enum ContactEventType {
+  WHATSAPP_CLICK
+  CALL_CLICK
+  EMAIL_CLICK
+}
+
+enum TestimonialStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum JobStatus {
+  OPEN
+  CLOSED
+}
+
+enum ApplicationStatus {
+  NEW
+  REVIEWING
+  INTERVIEW
+  REJECTED
+  HIRED
+}
+
+enum EmailJobStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+model User {
+  id            String            @id @default(cuid())
+  name          String
+  email         String            @unique
+  emailVerified Boolean           @default(false)
+  passwordHash  String?
+  avatarUrl     String?
+  role          Role              @default(USER)
+  isActive      Boolean           @default(true)
+  lastSignInAt  DateTime?
+  sessions      Session[]
+  accounts      Account[]
+  authEvents    AuthEvent[]
+  socialPosts   SocialPost[]
+  showcase      ShowcaseProduct[]
+  blogPosts     BlogPost[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model Session {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash      String    @unique
+  ip             String?
+  userAgent      String?
+  approxLocation String?
+  rememberMe     Boolean   @default(false)
+  lastActiveAt   DateTime  @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, expiresAt])
+}
+
+model Account {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String
+  providerAccountId String
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         DateTime?
+  createdAt         DateTime  @default(now())
+
+  @@unique([provider, providerAccountId])
+}
+
+model VerificationToken {
+  id          String   @id @default(cuid())
+  email       String
+  otpHash     String
+  attempts    Int      @default(0)
+  resendCount Int      @default(0)
+  lastSentAt  DateTime @default(now())
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([email, expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model AuthEvent {
+  id        String   @id @default(cuid())
+  type      String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  email     String?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([userId, createdAt])
+}
+
+model ShowcaseProduct {
+  id               String           @id @default(cuid())
+  slug             String           @unique
+  name             String
+  tagline          String
+  shortDescription String
+  fullDescription  String?
+  coverImageUrl    String
+  coverImageId     String
+  coverImageWidth  Int
+  coverImageHeight Int
+  coverImageAlt    String
+  coverBlurDataUrl String?
+  galleryImages    Json?
+  category         ShowcaseCategory
+  techTags         String[]
+  liveUrl          String
+  caseStudyId      String?
+  badge            ShowcaseBadge?
+  launchDate       DateTime
+  featuredOnHome   Boolean          @default(true)
+  displayOrder     Int              @default(0)
+  status           ContentStatus    @default(DRAFT)
+  publishedAt      DateTime?
+  deletedAt        DateTime?
+  authorId         String
+  author           User             @relation(fields: [authorId], references: [id])
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([status, featuredOnHome, displayOrder, launchDate])
+}
+
+model Project {
+  id            String           @id @default(cuid())
+  slug          String           @unique
+  title         String
+  summary       String
+  category      ShowcaseCategory
+  techTags      String[]
+  coverImageUrl String
+  coverImageId  String
+  gallery       Json?
+  challenge     String?
+  solution      String?
+  features      String[]
+  metrics       Json?
+  liveUrl       String?
+  featured      Boolean          @default(false)
+  displayOrder  Int              @default(0)
+  status        ContentStatus    @default(DRAFT)
+  deletedAt     DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([status, featured, displayOrder])
+}
+
+model Service {
+  id           String        @id @default(cuid())
+  slug         String        @unique
+  title        String
+  summary      String
+  deliverables String[]
+  icon         String
+  displayOrder Int           @default(0)
+  visible      Boolean       @default(true)
+  status       ContentStatus @default(PUBLISHED)
+  deletedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model BlogPost {
+  id             String        @id @default(cuid())
+  slug           String        @unique
+  title          String
+  excerpt        String
+  body           String
+  coverImageUrl  String?
+  tags           String[]
+  seoTitle       String?
+  seoDescription String?
+  readingMinutes Int           @default(1)
+  status         ContentStatus @default(DRAFT)
+  scheduledFor   DateTime?
+  publishedAt    DateTime?
+  deletedAt      DateTime?
+  authorId       String
+  author         User          @relation(fields: [authorId], references: [id])
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([status, publishedAt])
+}
+
+model Testimonial {
+  id         String            @id @default(cuid())
+  role       String?
+  authorName String
+  company    String?
+  quote      String
+  avatarUrl  String?
+  rating     Int?
+  status     TestimonialStatus @default(PENDING)
+  featured   Boolean           @default(false)
+  deletedAt  DateTime?
+  createdAt  DateTime          @default(now())
+}
+
+model Job {
+  id           String           @id @default(cuid())
+  slug         String           @unique
+  title        String
+  department   String
+  location     String
+  type         String
+  description  String
+  status       JobStatus        @default(OPEN)
+  applications JobApplication[]
+  deletedAt    DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model JobApplication {
+  id             String            @id @default(cuid())
+  jobId          String
+  job            Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  name           String
+  email          String
+  resumePublicId String
+  portfolioUrl   String?
+  message        String?
+  status         ApplicationStatus @default(NEW)
+  createdAt      DateTime          @default(now())
+
+  @@index([jobId, status])
+}
+
+model MediaAsset {
+  id         String   @id @default(cuid())
+  publicId   String   @unique
+  url        String
+  width      Int?
+  height     Int?
+  bytes      Int
+  alt        String?
+  usageCount Int      @default(0)
+  createdAt  DateTime @default(now())
+}
+
+model Lead {
+  id        String             @id @default(cuid())
+  source    LeadSource
+  name      String
+  email     String?
+  phone     String?
+  company   String?
+  services  String[]
+  budget    String?
+  timeline  String?
+  brief     String?
+  pageUrl   String?
+  utm       Json?
+  status    LeadStatus         @default(NEW)
+  notes     LeadNote[]
+  history   LeadStatusChange[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@index([status, createdAt])
+  @@index([email])
+}
+
+model LeadNote {
+  id        String   @id @default(cuid())
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+}
+
+model LeadStatusChange {
+  id         String      @id @default(cuid())
+  leadId     String
+  lead       Lead        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  fromStatus LeadStatus?
+  toStatus   LeadStatus
+  actorId    String?
+  createdAt  DateTime    @default(now())
+
+  @@index([toStatus, createdAt])
+}
+
+model ContactEvent {
+  id        String           @id @default(cuid())
+  type      ContactEventType
+  pageUrl   String
+  createdAt DateTime         @default(now())
+
+  @@index([type, createdAt])
+}
+
+model ContactSettings {
+  id              String   @id @default("singleton")
+  whatsappNumber  String
+  phone           String
+  publicEmail     String
+  notifyEmails    String[]
+  address         String?
+  timezone        String   @default("Asia/Dhaka")
+  businessHours   Json
+  bookingUrl      String?
+  whatsappMessage String   @default("Hello DevCore, I would like to discuss a project.")
+  callbackPromise String   @default("We call back within 1 business hour")
+  socialLinks     Json?
+  updatedAt       DateTime @updatedAt
+}
+
+model SocialConnection {
+  id             String         @id @default(cuid())
+  platform       SocialPlatform @unique
+  accountName    String
+  accountId      String
+  accessToken    String
+  refreshToken   String?
+  keyVersion     Int            @default(1)
+  tokenExpiresAt DateTime?
+  isActive       Boolean        @default(true)
+  updatedAt      DateTime       @updatedAt
+}
+
+model SocialPost {
+  id              String              @id @default(cuid())
+  title           String?
+  baseContent     String
+  platformContent Json?
+  mediaUrls       String[]
+  targetPlatforms SocialPlatform[]
+  status          PostStatus          @default(DRAFT)
+  scheduledFor    DateTime?
+  publishedAt     DateTime?
+  showcaseId      String?
+  deliveryLogs    SocialDeliveryLog[]
+  authorId        String
+  author          User                @relation(fields: [authorId], references: [id])
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([status, scheduledFor])
+}
+
+model SocialDeliveryLog {
+  id             String         @id @default(cuid())
+  postId         String
+  post           SocialPost     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  platform       SocialPlatform
+  status         String
+  externalPostId String?
+  externalUrl    String?
+  error          Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([status, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  action    String
+  entity    String
+  entityId  String
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([entity, entityId])
+}
+
+model EmailJob {
+  id            String         @id @default(cuid())
+  template      String
+  toEmail       String
+  payload       Json
+  status        EmailJobStatus @default(PENDING)
+  attempts      Int            @default(0)
+  nextAttemptAt DateTime       @default(now())
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime       @default(now())
+
+  @@index([status, nextAttemptAt])
+}
+
+model JobRun {
+  id         String    @id @default(cuid())
+  name       String
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  ok         Boolean   @default(false)
+  detail     Json?
+
+  @@index([name, startedAt])
+}
+
+model IdempotencyRecord {
+  key       String   @id
+  scope     String
+  status    Int
+  response  Json
+  createdAt DateTime @default(now())
+}

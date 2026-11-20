@@ -1,0 +1,16 @@
+
+.env
+.env*
+
+.windsurf
+.claude
+.agents
+
+node_modules
+
+dist
+.next
+
+/src/generated/prisma
+
+
