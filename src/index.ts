@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import { prisma } from "./server/db/prisma";
+import { authRouter } from "./auth/auth-routes";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -13,6 +14,9 @@ app.use(
   })
 );
 app.use(express.json());
+
+// Authentication Routes
+app.use("/api/auth", authRouter);
 
 // Welcome route for http://localhost:5000
 
@@ -323,6 +327,547 @@ app.post("/api/admin/about/team/reorder", (req, res) => {
     teamMembers.sort((a, b) => a.displayOrder - b.displayOrder);
   }
   res.json({ data: teamMembers, message: "Team members reordered successfully" });
+});
+
+// ─── BLOG & TECHNICAL CMS ──────────────────────────────────────────────────
+let blogHeroConfig = {
+  badge: "ENGINEERING DISPATCH",
+  title: "Systems, Distributed State & Determinism",
+  description:
+    "Deep dives into high-throughput backend infrastructure, edge replication, Linux eBPF telemetry, and deterministic systems architecture from the engineers at DevCore.",
+};
+
+let blogCategories = [
+  { id: "cat-1", slug: "all", name: "All Articles", description: "Complete technical archive" },
+  { id: "cat-2", slug: "distributed-systems", name: "Distributed Systems", description: "Raft, Paxos, consensus and edge replication" },
+  { id: "cat-3", slug: "linux-kernel", name: "Linux & eBPF", description: "Kernel bypass, socket acceleration and system observability" },
+  { id: "cat-4", slug: "ai-systems", name: "Deterministic AI", description: "Constrained decoding, structured LLM pipelines and offline inferences" },
+  { id: "cat-5", slug: "database-internals", name: "Databases & WAL", description: "PostgreSQL, SQLite, storage engines and CRDT sync" },
+  { id: "cat-6", slug: "systems-architecture", name: "Architecture", description: "Zero-copy patterns, memory safety and microservices" },
+];
+
+let blogAuthors = [
+  {
+    id: "auth-kazi",
+    name: "Kazi Mahedi Hasan",
+    role: "Lead Systems Architect & Co-Founder",
+    bio: "Specializing in distributed transaction guarantees, edge storage replication, and high-throughput microservice architecture.",
+    avatarUrl: "",
+    initials: "KM",
+    githubUrl: "https://github.com",
+    linkedinUrl: "https://linkedin.com",
+    twitterUrl: "https://x.com",
+    isActive: true,
+  },
+  {
+    id: "auth-fourkan",
+    name: "The Fourkan Bin Ilias",
+    role: "Principal Infrastructure Engineer & Co-Founder",
+    bio: "Focusing on deterministic cloud orchestration, Linux kernel networking, and eBPF observability pipelines.",
+    avatarUrl: "",
+    initials: "TF",
+    githubUrl: "https://github.com",
+    linkedinUrl: "https://linkedin.com",
+    twitterUrl: "https://x.com",
+    isActive: true,
+  },
+  {
+    id: "auth-eng",
+    name: "DevCore Engineering Guild",
+    role: "Core Systems Team",
+    bio: "Collective architectural analysis and engineering post-mortems from DevCore's systems development team.",
+    avatarUrl: "",
+    initials: "DC",
+    githubUrl: "https://github.com",
+    isActive: true,
+  },
+];
+
+let blogArticles = [
+  {
+    id: "post-1",
+    slug: "offline-first-sqlite-wal-crdts",
+    title: "Offline-First Architectures: Replicating SQLite WAL via CRDTs",
+    excerpt:
+      "A deep architectural dissection into building zero-drift mobile and desktop clients that continue operation across unstable edge links with deterministic conflict resolution.",
+    content: `## The Fallacy of Continuous Network Connectivity
+
+Modern software architectures frequently make a dangerous assumption: reliable, low-latency broadband availability. When edge nodes, field devices, or mobile endpoints lose connection, traditional request-response architectures fail catastrophically.
+
+Building an **offline-first** system requires inverting the data access model. The local device must treat its local embedded store (SQLite) as the primary source of truth, replicating changes to central nodes asynchronously.
+
+\`\`\`go
+// DeltaSync engine for SQLite WAL replication via CRDTs
+type VectorClock map[string]uint64
+
+type StateDelta struct {
+    NodeID    string      \`json:"node_id"\`
+    Seq       uint64      \`json:"seq"\`
+    Clock     VectorClock \`json:"clock"\`
+    Operation byte        \`json:"op"\`
+    Payload   []byte      \`json:"payload"\`
+    Checksum  [32]byte    \`json:"checksum"\`
+}
+
+func (d *StateDelta) VerifyIntegrity() bool {
+    h := sha256.New()
+    h.Write([]byte(d.NodeID))
+    binary.Write(h, binary.BigEndian, d.Seq)
+    h.Write(d.Payload)
+    return subtle.ConstantTimeCompare(h.Sum(nil), d.Checksum[:]) == 1
+}
+\`\`\`
+
+### Why Standard WAL Mirroring Is Insufficient
+
+Postgres streaming replication or SQLite backup APIs rely on linear log-sequence numbers (LSNs). In a multi-master or disconnected topology, two nodes can mutate state simultaneously without a shared clock.
+
+By combining State-based Conflict-Free Replicated Data Types (CvRDTs) with custom WAL hooks, we obtain a deterministic merge function that mathematically converges to the identical state regardless of packet arrival order.
+
+### Implementation Checklist
+- Intercept local SQLite transactions via update hooks (\`sqlite3_update_hook\`).
+- Transform mutation deltas into causal state payloads with vector clocks.
+- Stage mutations in an encrypted local outbox table.
+- Broadcast deltas during reconnect windows and execute idempotent merges.`,
+    category: "distributed-systems",
+    categorySlug: "distributed-systems",
+    tags: ["Distributed Systems", "SQLite", "CRDT", "Go", "Architecture"],
+    coverImage: "",
+    status: "PUBLISHED",
+    featured: true,
+    featuredSnippet: {
+      filename: "sync_engine.go",
+      language: "go",
+      code: `// DeltaSync engine with vector clocks
+type StateDelta struct {
+    NodeID    string      \`json:"node_id"\`
+    Seq       uint64      \`json:"seq"\`
+    Clock     VectorClock \`json:"clock"\`
+    Operation byte        \`json:"op"\`
+    Payload   []byte      \`json:"payload"\`
+    Checksum  [32]byte    \`json:"checksum"\`
+}`,
+    },
+    readingMinutes: 8,
+    readCount: 1420,
+    author: blogAuthors[0],
+    seoTitle: "Offline-First Architectures: Replicating SQLite WAL via CRDTs | DevCore",
+    seoDescription: "Deep dive into building zero-drift offline-first systems using SQLite write-ahead logging and Conflict-Free Replicated Data Types.",
+    publishedAt: "2026-03-12T10:00:00.000Z",
+    createdAt: "2026-03-10T08:00:00.000Z",
+    updatedAt: "2026-03-12T10:00:00.000Z",
+  },
+  {
+    id: "post-2",
+    slug: "linux-ebpf-socket-acceleration",
+    title: "Kernel Bypass & Socket Acceleration with Linux eBPF",
+    excerpt:
+      "Achieving sub-microsecond IPC and packet redirection by bypassing standard TCP/IP stack overhead using eBPF sockops and sockhash maps.",
+    content: `## The Cost of the Generic Linux Network Stack
+
+Every network packet processed through the Linux TCP/IP stack crosses multiple protection domains and data structures. For ultra-low latency workloads, this introduces measurable latency jitter and CPU cache evictions.
+
+By using **eBPF (Extended Berkeley Packet Filter)**, specifically \`BPF_PROG_TYPE_SOCK_OPS\` and \`BPF_MAP_TYPE_SOCKHASH\`, we can redirect socket buffers directly between cooperating local containers at the socket layer.
+
+\`\`\`c
+SEC("sockops")
+int bpf_sockmap_redirect(struct bpf_sock_ops *skops) {
+    if (skops->family != AF_INET)
+        return BPF_OK;
+
+    switch (skops->op) {
+    case BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB:
+    case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
+        bpf_sock_hash_update(skops, &sock_map, &skops->local_port, BPF_NOEXIST);
+        break;
+    }
+    return BPF_OK;
+}
+\`\`\`
+
+### Benchmarking Throughput & Latency
+
+In synthetic Redis and RPC benchmarks, bypassing the TCP stack delivers:
+- **38% reduction in p99 latency** under saturated socket loads.
+- **Zero packet drops** during kernel thread preemption events.
+- Transparent operation without modifying user-space application code.`,
+    category: "linux-kernel",
+    categorySlug: "linux-kernel",
+    tags: ["Linux", "eBPF", "Performance", "Networking", "C"],
+    coverImage: "",
+    status: "PUBLISHED",
+    featured: false,
+    readingMinutes: 6,
+    readCount: 980,
+    author: blogAuthors[1],
+    seoTitle: "Kernel Bypass & Socket Acceleration with Linux eBPF | DevCore",
+    seoDescription: "How DevCore achieves sub-microsecond IPC using eBPF sockhash socket redirection.",
+    publishedAt: "2026-02-28T09:00:00.000Z",
+    createdAt: "2026-02-25T11:00:00.000Z",
+    updatedAt: "2026-02-28T09:00:00.000Z",
+  },
+  {
+    id: "post-3",
+    slug: "deterministic-llm-structured-decoding",
+    title: "Deterministic AI: Enforcing Strict Schemas with Constrained Decoding",
+    excerpt:
+      "Why regex post-processing fails in mission-critical AI pipelines and how context-free grammar guidance eliminates hallucination at token generation time.",
+    content: `## The Fragility of JSON Parsing in Production LLMs
+
+Prompt engineering that demands "Return only valid JSON" is fundamentally non-deterministic. Under temperature variations and complex context windows, large language models occasionally emit trailing commas, unescaped quotes, or markdown wrappers.
+
+A robust enterprise system cannot rely on retry loops or regex cleaners. Instead, we must constrain the logits mask at the exact moment of token prediction.
+
+\`\`\`python
+# Grammar-guided logit masking during token sampling
+class ConstrainedLogitProcessor:
+    def __init__(self, grammar_automaton):
+        self.automaton = grammar_automaton
+
+    def filter_allowed_tokens(self, current_state: int, vocab_tensors):
+        allowed_token_ids = self.automaton.valid_next_tokens(current_state)
+        mask = torch.full_like(vocab_tensors, float('-inf'))
+        mask[allowed_token_ids] = 0.0
+        return vocab_tensors + mask
+\`\`\`
+
+### Eliminating Failure Modes
+
+When the token sampler is restricted by a finite state automaton (FSA) representing a formal schema, 100% of generated tokens are mathematically guaranteed to conform to your target data structure.`,
+    category: "ai-systems",
+    categorySlug: "ai-systems",
+    tags: ["AI Systems", "LLM", "Python", "Safety", "Machine Learning"],
+    coverImage: "",
+    status: "PUBLISHED",
+    featured: false,
+    readingMinutes: 7,
+    readCount: 1150,
+    author: blogAuthors[0],
+    seoTitle: "Deterministic AI: Enforcing Strict Schemas with Constrained Decoding | DevCore",
+    seoDescription: "Learn how grammar-guided token decoding eliminates hallucination and schema invalidation in production AI systems.",
+    publishedAt: "2026-02-15T14:30:00.000Z",
+    createdAt: "2026-02-12T16:00:00.000Z",
+    updatedAt: "2026-02-15T14:30:00.000Z",
+  },
+  {
+    id: "post-4",
+    slug: "zero-copy-cloud-microservices",
+    title: "Zero-Copy Memory Semantics in Cloud Microservices",
+    excerpt:
+      "Eliminating serialization bottlenecks and CPU memory cache thrashing with Apache Arrow, FlatBuffers, and Linux splice system calls.",
+    content: `## Memory Bandwidth Is the New CPU Bound
+
+Modern cloud servers feature dozens of high-frequency cores, but CPU cache hierarchies and memory bus bandwidth remain the primary throughput bottlenecks for data-heavy microservices.
+
+Conventional JSON or Protocol Buffer marshaling requires repeated memory copies: network buffer -> kernel memory -> user-space runtime -> deserialized object heap.
+
+\`\`\`rust
+// Zero-copy deserialization using FlatBuffers in Rust
+pub fn process_telemetry_batch<'a>(raw_bytes: &'a [u8]) -> Result<(), DeserializationError> {
+    let batch = root_as_telemetry_batch(raw_bytes)?;
+    for record in batch.records() {
+        process_in_place(record.device_id(), record.timestamp(), record.payload());
+    }
+    Ok(())
+}
+\`\`\`
+
+### Architectural Impact
+
+By adopting memory layouts that are identical in memory and on the wire, servers can saturate 40Gbps+ interfaces with single-digit CPU consumption.`,
+    category: "systems-architecture",
+    categorySlug: "systems-architecture",
+    tags: ["Rust", "Performance", "Microservices", "Cloud", "Zero-Copy"],
+    coverImage: "",
+    status: "PUBLISHED",
+    featured: false,
+    readingMinutes: 9,
+    readCount: 790,
+    author: blogAuthors[1],
+    seoTitle: "Zero-Copy Memory Semantics in Cloud Microservices | DevCore",
+    seoDescription: "Architectural techniques for eliminating serialization overhead using zero-copy memory formats.",
+    publishedAt: "2026-01-20T11:00:00.000Z",
+    createdAt: "2026-01-18T12:00:00.000Z",
+    updatedAt: "2026-01-20T11:00:00.000Z",
+  },
+];
+
+let newsletterSubscribers = [
+  {
+    id: "sub-1",
+    email: "systems.architect@enterprise.io",
+    status: "ACTIVE",
+    source: "BLOG_PAGE",
+    createdAt: "2026-02-01T10:00:00.000Z",
+  },
+  {
+    id: "sub-2",
+    email: "dev.core.solution2@gmail.com",
+    status: "ACTIVE",
+    source: "BLOG_FEATURED",
+    createdAt: "2026-02-10T12:00:00.000Z",
+  },
+];
+
+// Public Hero Config
+app.get("/api/public/blog/hero", (_req, res) => {
+  res.json({ data: blogHeroConfig });
+});
+
+app.put("/api/admin/blog/hero", (req, res) => {
+  Object.assign(blogHeroConfig, req.body);
+  res.json({ data: blogHeroConfig, message: "Hero configuration updated" });
+});
+
+// Categories
+app.get("/api/public/blog/categories", (_req, res) => {
+  const categoriesWithCounts = blogCategories.map((cat) => ({
+    ...cat,
+    count: blogArticles.filter(
+      (a) => a.category.toLowerCase() === cat.slug.toLowerCase() && a.status === "PUBLISHED"
+    ).length,
+  }));
+  res.json({ data: categoriesWithCounts });
+});
+
+app.post("/api/admin/blog/categories", (req, res) => {
+  const newCat = {
+    id: `cat-${Date.now()}`,
+    slug: req.body.slug || `category-${Date.now()}`,
+    name: req.body.name || "New Category",
+    description: req.body.description || "",
+    count: 0,
+  };
+  blogCategories.push(newCat);
+  res.status(201).json({ data: newCat, message: "Category created" });
+});
+
+app.put("/api/admin/blog/categories/:id", (req, res) => {
+  const cat = blogCategories.find((c) => c.id === req.params.id);
+  if (!cat) return res.status(404).json({ error: { message: "Category not found" } });
+  Object.assign(cat, req.body);
+  res.json({ data: cat, message: "Category updated" });
+});
+
+app.delete("/api/admin/blog/categories/:id", (req, res) => {
+  const idx = blogCategories.findIndex((c) => c.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: { message: "Category not found" } });
+  blogCategories.splice(idx, 1);
+  res.json({ message: "Category deleted" });
+});
+
+// Authors
+app.get("/api/public/blog/authors", (_req, res) => {
+  res.json({ data: blogAuthors });
+});
+
+app.post("/api/admin/blog/authors", (req, res) => {
+  const newAuthor = {
+    id: `auth-${Date.now()}`,
+    name: req.body.name || "Engineering Author",
+    role: req.body.role || "Systems Engineer",
+    bio: req.body.bio || "",
+    avatarUrl: req.body.avatarUrl || "",
+    initials:
+      req.body.initials ||
+      (req.body.name
+        ? req.body.name
+            .split(" ")
+            .map((n: string) => n[0])
+            .join("")
+            .slice(0, 3)
+            .toUpperCase()
+        : "DC"),
+    githubUrl: req.body.githubUrl || "",
+    linkedinUrl: req.body.linkedinUrl || "",
+    twitterUrl: req.body.twitterUrl || "",
+    isActive: req.body.isActive !== undefined ? req.body.isActive : true,
+  };
+  blogAuthors.push(newAuthor);
+  res.status(201).json({ data: newAuthor, message: "Author created" });
+});
+
+app.put("/api/admin/blog/authors/:id", (req, res) => {
+  const a = blogAuthors.find((item) => item.id === req.params.id);
+  if (!a) return res.status(404).json({ error: { message: "Author not found" } });
+  Object.assign(a, req.body);
+  res.json({ data: a, message: "Author updated" });
+});
+
+app.delete("/api/admin/blog/authors/:id", (req, res) => {
+  const idx = blogAuthors.findIndex((item) => item.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: { message: "Author not found" } });
+  blogAuthors.splice(idx, 1);
+  res.json({ message: "Author deleted" });
+});
+
+// Articles
+app.get("/api/public/blog", (req, res) => {
+  let list = [...blogArticles];
+  const { category, tag, search, sort, status } = req.query;
+
+  if (status === "DRAFT") {
+    list = list.filter((a) => a.status === "DRAFT");
+  } else if (status !== "ALL") {
+    list = list.filter((a) => a.status === "PUBLISHED");
+  }
+
+  if (category && typeof category === "string" && category !== "all") {
+    const c = category.toLowerCase();
+    list = list.filter((a) => a.category.toLowerCase() === c || a.categorySlug?.toLowerCase() === c);
+  }
+
+  if (tag && typeof tag === "string") {
+    const t = tag.toLowerCase();
+    list = list.filter((a) => a.tags.some((item) => item.toLowerCase() === t));
+  }
+
+  if (search && typeof search === "string" && search.trim()) {
+    const q = search.toLowerCase().trim();
+    list = list.filter(
+      (a) =>
+        a.title.toLowerCase().includes(q) ||
+        a.excerpt.toLowerCase().includes(q) ||
+        a.content.toLowerCase().includes(q) ||
+        (a.author?.name ? a.author.name.toLowerCase().includes(q) : false)
+    );
+  }
+
+  if (sort === "oldest") {
+    list.sort((a, b) => new Date(a.publishedAt || a.createdAt).getTime() - new Date(b.publishedAt || b.createdAt).getTime());
+  } else if (sort === "readingTime") {
+    list.sort((a, b) => a.readingMinutes - b.readingMinutes);
+  } else {
+    list.sort((a, b) => new Date(b.publishedAt || b.createdAt).getTime() - new Date(a.publishedAt || a.createdAt).getTime());
+  }
+
+  res.json({ data: list });
+});
+
+app.get("/api/public/blog/:slug", (req, res) => {
+  const article = blogArticles.find((a) => a.slug === req.params.slug);
+  if (!article) return res.status(404).json({ error: { message: "Article not found" } });
+  // Increment view
+  article.readCount = (article.readCount || 0) + 1;
+  res.json({ data: article });
+});
+
+app.post("/api/admin/blog/articles", (req, res) => {
+  const now = new Date().toISOString();
+  const newArticle = {
+    ...req.body,
+    id: `post-${Date.now()}`,
+    createdAt: now,
+    updatedAt: now,
+    publishedAt: req.body.status === "PUBLISHED" ? now : undefined,
+    readCount: 0,
+  };
+  blogArticles.unshift(newArticle);
+  res.status(201).json({ data: newArticle, message: "Article created successfully" });
+});
+
+app.put("/api/admin/blog/articles/:id", (req, res) => {
+  const idx = blogArticles.findIndex((a) => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: { message: "Article not found" } });
+  const existing = blogArticles[idx]!;
+  const updated = {
+    ...existing,
+    ...req.body,
+    updatedAt: new Date().toISOString(),
+    publishedAt:
+      req.body.status === "PUBLISHED" && !existing.publishedAt
+        ? new Date().toISOString()
+        : req.body.status === "DRAFT"
+        ? undefined
+        : req.body.publishedAt || existing.publishedAt,
+  };
+  blogArticles[idx] = updated;
+  res.json({ data: updated, message: "Article updated successfully" });
+});
+
+app.delete("/api/admin/blog/articles/:id", (req, res) => {
+  const idx = blogArticles.findIndex((a) => a.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: { message: "Article not found" } });
+  blogArticles.splice(idx, 1);
+  res.json({ message: "Article deleted successfully" });
+});
+
+// Newsletter
+app.post("/api/public/newsletter/subscribe", (req, res) => {
+  const { email, source } = req.body;
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    return res.status(400).json({ error: { message: "A valid email address is required" } });
+  }
+  const normalized = email.trim().toLowerCase();
+  const existing = newsletterSubscribers.find((s) => s.email.toLowerCase() === normalized);
+  if (existing) {
+    if (existing.status === "ACTIVE") {
+      return res.json({
+        data: { success: true, message: "You are already subscribed to the technical dispatch.", subscriber: existing },
+      });
+    } else {
+      existing.status = "ACTIVE";
+      return res.json({
+        data: { success: true, message: "Welcome back! Your subscription has been reactivated.", subscriber: existing },
+      });
+    }
+  }
+
+  const newSub = {
+    id: `sub-${Date.now()}`,
+    email: normalized,
+    status: "ACTIVE",
+    source: source || "BLOG_PAGE",
+    createdAt: new Date().toISOString(),
+  };
+  newsletterSubscribers.unshift(newSub);
+  res.status(201).json({
+    data: {
+      success: true,
+      message: "Thank you for subscribing to DevCore Technical Engineering Dispatches.",
+      subscriber: newSub,
+    },
+  });
+});
+
+app.post("/api/public/newsletter/unsubscribe", (req, res) => {
+  const { email } = req.body;
+  if (email && typeof email === "string") {
+    const sub = newsletterSubscribers.find((s) => s.email.toLowerCase() === email.trim().toLowerCase());
+    if (sub) sub.status = "UNSUBSCRIBED";
+  }
+  res.json({ data: { success: true, message: "You have been unsubscribed from the dispatch." } });
+});
+
+app.get("/api/admin/newsletter/subscribers", (_req, res) => {
+  res.json({ data: newsletterSubscribers });
+});
+
+app.put("/api/admin/newsletter/subscribers/:id", (req, res) => {
+  const sub = newsletterSubscribers.find((s) => s.id === req.params.id);
+  if (!sub) return res.status(404).json({ error: { message: "Subscriber not found" } });
+  if (req.body.status) sub.status = req.body.status;
+  res.json({ data: sub, message: "Subscriber status updated" });
+});
+
+app.delete("/api/admin/newsletter/subscribers/:id", (req, res) => {
+  const idx = newsletterSubscribers.findIndex((s) => s.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: { message: "Subscriber not found" } });
+  newsletterSubscribers.splice(idx, 1);
+  res.json({ message: "Subscriber deleted successfully" });
+});
+
+app.get("/api/admin/blog/stats", (_req, res) => {
+  res.json({
+    data: {
+      totalArticles: blogArticles.length,
+      publishedArticles: blogArticles.filter((a) => a.status === "PUBLISHED").length,
+      draftArticles: blogArticles.filter((a) => a.status === "DRAFT").length,
+      totalCategories: blogCategories.length,
+      totalSubscribers: newsletterSubscribers.filter((s) => s.status === "ACTIVE").length,
+      totalReads: blogArticles.reduce((sum, a) => sum + (a.readCount || 0), 0),
+    },
+  });
 });
 
 app.listen(PORT, () => {
