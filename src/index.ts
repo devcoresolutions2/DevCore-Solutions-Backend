@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { prisma } from "./server/db/prisma";
 import { authRouter } from "./auth/auth-routes";
+import { BRANDING_LOGOS } from "./services/media.service";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -17,6 +18,13 @@ app.use(express.json());
 
 // Authentication Routes
 app.use("/api/auth", authRouter);
+
+// Public Branding Logos (Cloudinary Powered)
+app.get("/api/public/branding/logos", (_req, res) => {
+  res.json({
+    data: BRANDING_LOGOS,
+  });
+});
 
 // Welcome route for http://localhost:5000
 
@@ -142,10 +150,10 @@ let teamMembers = [
   },
   {
     id: "team-2",
-    name: "The Fourkan Bin Ilias",
+    name: "Fourkan Bin Ilias",
     role: "Founder & Full Stack Developer",
     bio: "Co-founder focusing on distributed backend infrastructure, microservices reliability, and deterministic database design.",
-    initials: "TF",
+    initials: "FI",
     badge: "FOUNDER",
     githubUrl: "https://github.com/devcoresolutions2",
     linkedinUrl: "https://www.linkedin.com/company/devcoresolutions2",
@@ -361,11 +369,11 @@ let blogAuthors = [
   },
   {
     id: "auth-fourkan",
-    name: "The Fourkan Bin Ilias",
+    name: "Fourkan Bin Ilias",
     role: "Principal Infrastructure Engineer & Co-Founder",
     bio: "Focusing on deterministic cloud orchestration, Linux kernel networking, and eBPF observability pipelines.",
     avatarUrl: "",
-    initials: "TF",
+    initials: "FI",
     githubUrl: "https://github.com",
     linkedinUrl: "https://linkedin.com",
     twitterUrl: "https://x.com",
