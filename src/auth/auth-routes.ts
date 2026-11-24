@@ -8,7 +8,7 @@ import {
   generateOtp,
 } from "../security/hash";
 import { checkRateLimit } from "../security/rate-limit";
-import { sendVerificationEmail, sendPasswordResetEmail } from "../emails/mailer";
+import { sendVerificationEmail, sendPasswordResetOtpEmail, sendPasswordResetEmail } from "../emails/mailer";
 
 export const authRouter = Router();
 
@@ -753,7 +753,7 @@ authRouter.get("/verification-status", async (req: Request, res: Response) => {
   }
 });
 
-// ─── 7. FORGOT PASSWORD ──────────────────────────────────────────────────────
+// ─── 7. FORGOT PASSWORD (REAL 6-DIGIT OTP DISPATCH) ──────────────────────────
 authRouter.post("/forgot-password", async (req: Request, res: Response) => {
   const { email } = req.body;
   if (!email || typeof email !== "string") {
@@ -764,7 +764,7 @@ authRouter.post("/forgot-password", async (req: Request, res: Response) => {
 
   const normalized = email.trim().toLowerCase();
   const rateKey = `forgot:${normalized}`;
-  const rate = await checkRateLimit(rateKey, 4, 900); // 4 requests per 15 mins
+  const rate = await checkRateLimit(rateKey, 4, 900); // Max 4 requests per 15 mins
 
   if (!rate.allowed) {
     return res.status(429).json({
@@ -778,47 +778,256 @@ authRouter.post("/forgot-password", async (req: Request, res: Response) => {
 
   try {
     const user = await prisma.user.findUnique({ where: { email: normalized } });
-    if (user) {
-      const rawToken = generateSecureToken(32);
-      const tokenHash = hashToken(rawToken);
 
-      await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
-      await prisma.passwordResetToken.create({
+    // Only issue reset code if account exists and has a password
+    if (user && user.passwordHash) {
+      const resetOtp = generateOtp(); // CSPRNG 6-digit OTP
+      const otpHash = hashToken(resetOtp);
+
+      // Invalidate any previous forgot-password token for this email
+      await prisma.verificationToken.deleteMany({
+        where: { email: `reset:${normalized}` },
+      });
+
+      // Create new OTP record valid for 10 minutes
+      await prisma.verificationToken.create({
         data: {
-          userId: user.id,
-          tokenHash,
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+          email: `reset:${normalized}`,
+          otpHash,
+          attempts: 0,
+          resendCount: 0,
+          lastSentAt: new Date(),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // Exactly 10 minutes
         },
       });
 
-      await sendPasswordResetEmail(normalized, user.name, rawToken);
+      // Dispatch real email via existing SMTP
+      await sendPasswordResetOtpEmail(normalized, user.name, resetOtp);
     }
 
-    // Always generic response to prevent account enumeration
+    // Always return consistent generic response to avoid account enumeration
+    const parts = normalized.split("@");
+    const local = parts[0] || "";
+    const domain = parts[1] || "";
+    const masked = local.length <= 2 ? `${local[0]}***@${domain}` : `${local[0]}***${local[local.length - 1]}@${domain}`;
+
     return res.json({
       success: true,
-      message: "If an account matches this email, a password recovery dispatch has been transmitted.",
+      message: "If an account exists for that address, a verification code is on its way.",
+      maskedEmail: masked,
+      expiresInSeconds: 600,
+      cooldownSeconds: 60,
+      resendsLeft: 3,
     });
   } catch (error) {
+    console.error("[Auth] Forgot-password dispatch error:", error);
     return res.status(500).json({
       error: { code: "SERVER_ERROR", message: "Password recovery service failed." },
     });
   }
 });
 
-// ─── 8. RESET PASSWORD ───────────────────────────────────────────────────────
+// ─── 8. VERIFY RESET OTP ─────────────────────────────────────────────────────
+authRouter.post("/verify-reset-otp", async (req: Request, res: Response) => {
+  const { email, otp } = req.body;
+
+  if (!email || !otp) {
+    return res.status(400).json({
+      error: { code: "MISSING_FIELDS", message: "Email and 6-digit verification code are required." },
+    });
+  }
+
+  const normalized = email.trim().toLowerCase();
+  const cleanedOtp = otp.toString().trim();
+
+  try {
+    const tokenRecord = await prisma.verificationToken.findFirst({
+      where: {
+        email: `reset:${normalized}`,
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!tokenRecord) {
+      return res.status(400).json({
+        error: { code: "EXPIRED_CODE", message: "Security code expired or not found. Please request a new code." },
+      });
+    }
+
+    // Check failed attempts limit (max 5)
+    if (tokenRecord.attempts >= 5) {
+      await prisma.verificationToken.delete({ where: { id: tokenRecord.id } });
+      return res.status(429).json({
+        error: {
+          code: "TOO_MANY_ATTEMPTS",
+          message: "Too many failed attempts. Security cooldown active. Please request a fresh code.",
+        },
+      });
+    }
+
+    const submittedHash = hashToken(cleanedOtp);
+    if (tokenRecord.otpHash !== submittedHash) {
+      const nextAttempts = tokenRecord.attempts + 1;
+      await prisma.verificationToken.update({
+        where: { id: tokenRecord.id },
+        data: { attempts: nextAttempts },
+      });
+
+      const remaining = Math.max(0, 5 - nextAttempts);
+      return res.status(400).json({
+        error: {
+          code: "INVALID_CODE",
+          message: `Invalid verification code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`,
+          attemptsLeft: remaining,
+        },
+      });
+    }
+
+    // OTP is valid! Consume it atomically so it cannot be reused
+    await prisma.verificationToken.delete({ where: { id: tokenRecord.id } });
+
+    // Look up user to bind reset authorization
+    const user = await prisma.user.findUnique({ where: { email: normalized } });
+    if (!user) {
+      return res.status(400).json({
+        error: { code: "USER_NOT_FOUND", message: "Account authorization failure." },
+      });
+    }
+
+    // Invalidate previous reset authorizations
+    await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+
+    // Generate single-use, short-lived reset authorization token (15 mins)
+    const resetAuthorizationToken = generateSecureToken(32);
+    const tokenHash = hashToken(resetAuthorizationToken);
+
+    await prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+      },
+    });
+
+    return res.json({
+      success: true,
+      message: "Verification code confirmed. You may now establish a new password.",
+      resetToken: resetAuthorizationToken,
+    });
+  } catch (error) {
+    console.error("[Auth] Verify reset OTP error:", error);
+    return res.status(500).json({
+      error: { code: "SERVER_ERROR", message: "Failed to verify security code." },
+    });
+  }
+});
+
+// ─── 9. RESEND RESET OTP ─────────────────────────────────────────────────────
+authRouter.post("/resend-reset-otp", async (req: Request, res: Response) => {
+  const { email } = req.body;
+  if (!email || typeof email !== "string") {
+    return res.status(400).json({
+      error: { code: "INVALID_EMAIL", message: "A valid email address is required." },
+    });
+  }
+
+  const normalized = email.trim().toLowerCase();
+
+  try {
+    const existing = await prisma.verificationToken.findFirst({
+      where: { email: `reset:${normalized}` },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (existing) {
+      // 60-second cooldown check
+      const elapsedSeconds = Math.floor((Date.now() - existing.lastSentAt.getTime()) / 1000);
+      if (elapsedSeconds < 60) {
+        return res.status(429).json({
+          error: {
+            code: "COOLDOWN_ACTIVE",
+            message: `Please wait ${60 - elapsedSeconds}s before requesting a new code.`,
+            cooldownSeconds: 60 - elapsedSeconds,
+          },
+        });
+      }
+
+      // Max 3 resends per session check
+      if (existing.resendCount >= 3) {
+        return res.status(429).json({
+          error: {
+            code: "RESEND_LIMIT_EXCEEDED",
+            message: "Maximum verification code resends reached for this session. Please wait before retrying.",
+          },
+        });
+      }
+    }
+
+    const user = await prisma.user.findUnique({ where: { email: normalized } });
+    const currentResendCount = existing ? existing.resendCount + 1 : 1;
+
+    if (user && user.passwordHash) {
+      const resetOtp = generateOtp();
+      const otpHash = hashToken(resetOtp);
+
+      await prisma.verificationToken.deleteMany({ where: { email: `reset:${normalized}` } });
+      await prisma.verificationToken.create({
+        data: {
+          email: `reset:${normalized}`,
+          otpHash,
+          attempts: 0,
+          resendCount: currentResendCount,
+          lastSentAt: new Date(),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        },
+      });
+
+      await sendPasswordResetOtpEmail(normalized, user.name, resetOtp);
+    }
+
+    return res.json({
+      success: true,
+      message: "If an account exists, a fresh verification code has been dispatched.",
+      cooldownSeconds: 60,
+      resendsLeft: Math.max(0, 3 - currentResendCount),
+    });
+  } catch (error) {
+    console.error("[Auth] Resend reset OTP error:", error);
+    return res.status(500).json({
+      error: { code: "SERVER_ERROR", message: "Failed to resend verification code." },
+    });
+  }
+});
+
+// ─── 10. RESET PASSWORD (CONSUME AUTHORIZATION TOKEN) ─────────────────────────
 authRouter.post("/reset-password", async (req: Request, res: Response) => {
   const { token, password } = req.body;
 
   if (!token || !password) {
     return res.status(400).json({
-      error: { code: "MISSING_FIELDS", message: "Token and new password are required." },
+      error: { code: "MISSING_FIELDS", message: "Reset authorization token and new password are required." },
     });
   }
 
-  if (typeof password !== "string" || password.length < 10) {
+  // Enforce password policy: at least 12 characters with mixed complexity
+  if (typeof password !== "string" || password.length < 12) {
     return res.status(400).json({
-      error: { code: "WEAK_PASSWORD", message: "Password must be at least 10 characters." },
+      error: { code: "WEAK_PASSWORD", message: "Password must be at least 12 characters in length." },
+    });
+  }
+
+  const hasUpper = /[A-Z]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
+
+  if (!hasUpper || !hasLower || (!hasNumber && !hasSpecial)) {
+    return res.status(400).json({
+      error: {
+        code: "WEAK_PASSWORD",
+        message: "Password must contain uppercase letters, lowercase letters, and at least one number or symbol.",
+      },
     });
   }
 
@@ -830,33 +1039,43 @@ authRouter.post("/reset-password", async (req: Request, res: Response) => {
 
     if (!resetRecord || resetRecord.usedAt || new Date() > resetRecord.expiresAt) {
       return res.status(400).json({
-        error: { code: "INVALID_TOKEN", message: "Password reset authorization has expired or was already utilized." },
+        error: {
+          code: "INVALID_TOKEN",
+          message: "Password reset authorization has expired or was already consumed. Please request a new code.",
+        },
       });
     }
 
     const newHash = await hashPassword(password);
 
-    await prisma.user.update({
-      where: { id: resetRecord.userId },
-      data: { passwordHash: newHash },
-    });
-
-    await prisma.passwordResetToken.update({
-      where: { id: resetRecord.id },
-      data: { usedAt: new Date() },
-    });
-
-    // Invalidate all active sessions for security
-    await prisma.session.updateMany({
-      where: { userId: resetRecord.userId },
-      data: { revokedAt: new Date() },
-    });
+    // Atomically update password, consume token, and revoke active sessions
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: resetRecord.userId },
+        data: { passwordHash: newHash },
+      }),
+      prisma.passwordResetToken.update({
+        where: { id: resetRecord.id },
+        data: { usedAt: new Date() },
+      }),
+      prisma.passwordResetToken.deleteMany({
+        where: {
+          userId: resetRecord.userId,
+          id: { not: resetRecord.id },
+        },
+      }),
+      prisma.session.updateMany({
+        where: { userId: resetRecord.userId },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
 
     return res.json({
       success: true,
-      message: "Password updated successfully. You may now sign in with your new credentials.",
+      message: "Password reset successfully. Your password has been updated. You can now sign in using your new password.",
     });
   } catch (error) {
+    console.error("[Auth] Reset password error:", error);
     return res.status(500).json({
       error: { code: "SERVER_ERROR", message: "Password reset processing failed." },
     });
