@@ -126,7 +126,10 @@ authRouter.post("/signup", async (req: Request, res: Response) => {
       },
     });
 
-    // Create verification token & OTP
+    // Invalidate any previous unverified tokens for this email
+    await prisma.verificationToken.deleteMany({ where: { email: normalizedEmail } });
+
+    // Create verification token & OTP (10-minute expiry)
     const rawToken = generateSecureToken(32);
     const tokenHash = hashToken(rawToken);
     const otp = generateOtp();
@@ -136,17 +139,23 @@ authRouter.post("/signup", async (req: Request, res: Response) => {
       data: {
         email: normalizedEmail,
         otpHash: `${tokenHash}:${otpHash}`,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000), // 15 mins
+        attempts: 0,
+        resendCount: 0,
+        lastSentAt: new Date(),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
       },
     });
 
     // Send verification email
-    await sendVerificationEmail(normalizedEmail, user.name, rawToken, otp);
+    const emailDelivered = await sendVerificationEmail(normalizedEmail, user.name, rawToken, otp);
 
     return res.status(201).json({
       success: true,
-      message: "Account created successfully. A verification code has been dispatched to your email.",
+      message: emailDelivered
+        ? "Account created successfully. A verification code has been dispatched to your email."
+        : "Account created, but SMTP delivery failed. Please request a new code via Resend.",
       email: normalizedEmail,
+      deliveryStatus: emailDelivered ? "DELIVERED" : "SMTP_FAILED",
     });
   } catch (error) {
     console.error("[Auth:SignUp] Error:", error);
@@ -339,45 +348,145 @@ authRouter.post("/verify-email", async (req: Request, res: Response) => {
   }
 
   try {
-    let matchedTokenRecord = null;
-
+    // A) Direct Link Verification via raw token
     if (token) {
       const hashed = hashToken(token);
       const records = await prisma.verificationToken.findMany({
         where: { expiresAt: { gt: new Date() } },
       });
-      matchedTokenRecord = records.find((r) => r.otpHash.startsWith(hashed));
-    } else if (otp && email) {
-      const hashedOtp = hashToken(otp.trim());
-      const records = await prisma.verificationToken.findMany({
-        where: { email: email.trim().toLowerCase(), expiresAt: { gt: new Date() } },
+      const matched = records.find((r) => r.otpHash.startsWith(hashed));
+
+      if (!matched) {
+        return res.status(400).json({
+          error: {
+            code: "EXPIRED_OR_INVALID",
+            message: "Verification link is invalid or has expired. Please request a new verification code.",
+          },
+        });
+      }
+
+      await prisma.user.update({
+        where: { email: matched.email },
+        data: { emailVerified: true },
       });
-      matchedTokenRecord = records.find((r) => r.otpHash.endsWith(hashedOtp));
+
+      await prisma.verificationToken.delete({ where: { id: matched.id } }).catch(() => {});
+
+      return res.json({
+        success: true,
+        message: "Email verified successfully! You may now sign in.",
+      });
     }
 
-    if (!matchedTokenRecord) {
+    // B) 6-Digit OTP Verification
+    if (!email || typeof email !== "string") {
       return res.status(400).json({
-        error: { code: "INVALID_TOKEN", message: "Verification token is invalid or has expired." },
+        error: { code: "MISSING_EMAIL", message: "Registered email address is required for code validation." },
       });
     }
 
-    await prisma.user.update({
-      where: { email: matchedTokenRecord.email },
-      data: { emailVerified: true },
+    const normalizedEmail = email.trim().toLowerCase();
+    const cleanOtp = String(otp).trim();
+
+    const record = await prisma.verificationToken.findFirst({
+      where: { email: normalizedEmail },
+      orderBy: { createdAt: "desc" },
     });
 
-    await prisma.verificationToken.delete({
-      where: { id: matchedTokenRecord.id },
-    }).catch(() => {});
+    if (!record) {
+      // Check if user is already verified
+      const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+      if (user?.emailVerified) {
+        return res.json({
+          success: true,
+          alreadyVerified: true,
+          message: "Email is already verified. You may proceed to your workspace.",
+        });
+      }
+
+      return res.status(400).json({
+        error: {
+          code: "NO_ACTIVE_CODE",
+          message: "No active verification code found for this account. Please request a new code.",
+        },
+      });
+    }
+
+    // Check expiration (10 minutes)
+    if (new Date() > record.expiresAt) {
+      return res.status(400).json({
+        error: {
+          code: "EXPIRED_CODE",
+          message: "Verification code expired. The 10-minute validity window has lapsed. Request a new token.",
+        },
+      });
+    }
+
+    // Check failed attempt lockout (Max 5 attempts)
+    const MAX_ATTEMPTS = 5;
+    if (record.attempts >= MAX_ATTEMPTS) {
+      const remainingCooldown = Math.max(0, Math.ceil((record.expiresAt.getTime() - Date.now()) / 1000));
+      return res.status(429).json({
+        error: {
+          code: "TOO_MANY_ATTEMPTS",
+          message: "Too many failed attempts. Account verification is rate-limited for security.",
+          cooldownSeconds: remainingCooldown,
+        },
+      });
+    }
+
+    // Verify submitted OTP against stored hash
+    const submittedHash = hashToken(cleanOtp);
+    const isMatch = record.otpHash.endsWith(submittedHash) || record.otpHash === submittedHash;
+
+    if (!isMatch) {
+      const updatedRecord = await prisma.verificationToken.update({
+        where: { id: record.id },
+        data: { attempts: { increment: 1 } },
+      });
+
+      const attemptsLeft = Math.max(0, MAX_ATTEMPTS - updatedRecord.attempts);
+
+      if (attemptsLeft === 0) {
+        const remainingCooldown = Math.max(0, Math.ceil((record.expiresAt.getTime() - Date.now()) / 1000));
+        return res.status(429).json({
+          error: {
+            code: "TOO_MANY_ATTEMPTS",
+            message: "Too many failed attempts. Account verification is rate-limited for security.",
+            attemptsLeft: 0,
+            cooldownSeconds: remainingCooldown,
+          },
+        });
+      }
+
+      return res.status(400).json({
+        error: {
+          code: "WRONG_CODE",
+          message: "That code is not correct.",
+          attemptsLeft,
+        },
+      });
+    }
+
+    // Successful Verification: Update user and consume token atomically
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { email: normalizedEmail },
+        data: { emailVerified: true },
+      }),
+      prisma.verificationToken.delete({
+        where: { id: record.id },
+      }),
+    ]);
 
     return res.json({
       success: true,
-      message: "Email verified successfully! You may now sign in.",
+      message: "Email verified successfully! Your identity has been cryptographically confirmed.",
     });
   } catch (error) {
     console.error("[Auth:VerifyEmail] Error:", error);
     return res.status(500).json({
-      error: { code: "SERVER_ERROR", message: "Verification processing failed." },
+      error: { code: "SERVER_ERROR", message: "Verification processing failed. Please try again." },
     });
   }
 });
@@ -393,7 +502,7 @@ authRouter.post("/resend-verification", async (req: Request, res: Response) => {
 
   const normalized = email.trim().toLowerCase();
   const rateKey = `resend:${normalized}`;
-  const rate = await checkRateLimit(rateKey, 3, 600); // 3 resends / 10 mins
+  const rate = await checkRateLimit(rateKey, 4, 900); // 4 requests per 15 mins window
 
   if (!rate.allowed) {
     return res.status(429).json({
@@ -408,13 +517,60 @@ authRouter.post("/resend-verification", async (req: Request, res: Response) => {
   try {
     const user = await prisma.user.findUnique({ where: { email: normalized } });
     if (!user) {
-      return res.json({ success: true, message: "If the account exists, a code was dispatched." });
+      return res.json({
+        success: true,
+        message: "If an account matches this email, a verification code was dispatched.",
+        resendsLeft: 2,
+      });
     }
 
     if (user.emailVerified) {
-      return res.json({ success: true, message: "This email is already verified. Please sign in." });
+      return res.json({
+        success: true,
+        alreadyVerified: true,
+        message: "This email is already verified. Please proceed to sign in.",
+      });
     }
 
+    // Check existing token for resend count and 60-second cooldown
+    const existing = await prisma.verificationToken.findFirst({
+      where: { email: normalized },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const MAX_RESENDS = 3;
+
+    if (existing) {
+      // Check 60-second cooldown between consecutive resend actions
+      const timeSinceLast = (Date.now() - existing.lastSentAt.getTime()) / 1000;
+      if (timeSinceLast < 60) {
+        const cooldownRemaining = Math.ceil(60 - timeSinceLast);
+        return res.status(429).json({
+          error: {
+            code: "COOLDOWN_ACTIVE",
+            message: `Please wait ${cooldownRemaining} seconds before requesting another code.`,
+            retryAfter: cooldownRemaining,
+          },
+        });
+      }
+
+      // Check max 3 resends limit
+      if (existing.resendCount >= MAX_RESENDS) {
+        const timeSinceCreation = (Date.now() - existing.createdAt.getTime()) / 1000;
+        if (timeSinceCreation < 900) { // 15-minute window
+          const remainingWait = Math.ceil(900 - timeSinceCreation);
+          return res.status(429).json({
+            error: {
+              code: "MAX_RESENDS_REACHED",
+              message: "Maximum resend limit (3 of 3) reached. Please wait for the security window to lapse.",
+              retryAfter: remainingWait,
+            },
+          });
+        }
+      }
+    }
+
+    const currentResendCount = existing ? existing.resendCount + 1 : 1;
     const rawToken = generateSecureToken(32);
     const tokenHash = hashToken(rawToken);
     const otp = generateOtp();
@@ -425,20 +581,175 @@ authRouter.post("/resend-verification", async (req: Request, res: Response) => {
       data: {
         email: normalized,
         otpHash: `${tokenHash}:${otpHash}`,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        attempts: 0,
+        resendCount: currentResendCount,
+        lastSentAt: new Date(),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
       },
     });
 
-    await sendVerificationEmail(normalized, user.name, rawToken, otp);
+    const sent = await sendVerificationEmail(normalized, user.name, rawToken, otp);
+
+    const resendsLeft = Math.max(0, MAX_RESENDS - currentResendCount);
 
     return res.json({
       success: true,
-      message: "A fresh verification link and security code have been sent.",
+      message: sent
+        ? "A fresh 6-digit verification code has been dispatched to your email."
+        : "Failed to dispatch email via SMTP. Please try again shortly.",
+      resendsLeft,
+      expiresInSeconds: 600,
     });
   } catch (error) {
+    console.error("[Auth:ResendVerification] Error:", error);
     return res.status(500).json({
       error: { code: "SERVER_ERROR", message: "Failed to dispatch verification email." },
     });
+  }
+});
+
+// ─── 6B. CHANGE PENDING SIGNUP EMAIL ─────────────────────────────────────────
+authRouter.post("/change-pending-email", async (req: Request, res: Response) => {
+  const { currentEmail, newEmail } = req.body;
+
+  if (!currentEmail || !newEmail || typeof currentEmail !== "string" || typeof newEmail !== "string") {
+    return res.status(400).json({
+      error: { code: "INVALID_FIELDS", message: "Both current and new email addresses are required." },
+    });
+  }
+
+  const normalizedCurrent = currentEmail.trim().toLowerCase();
+  const normalizedNew = newEmail.trim().toLowerCase();
+
+  if (!normalizedNew.includes("@") || normalizedNew.length < 5) {
+    return res.status(400).json({
+      error: { code: "INVALID_NEW_EMAIL", message: "Please provide a valid new email address." },
+    });
+  }
+
+  if (normalizedCurrent === normalizedNew) {
+    return res.status(400).json({
+      error: { code: "SAME_EMAIL", message: "The new email address cannot be identical to the current one." },
+    });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email: normalizedCurrent } });
+    if (!user) {
+      return res.status(404).json({
+        error: { code: "USER_NOT_FOUND", message: "Account not found for the specified current email." },
+      });
+    }
+
+    if (user.emailVerified) {
+      return res.status(403).json({
+        error: {
+          code: "ALREADY_VERIFIED",
+          message: "This account has already verified its email. Use authenticated account settings to change emails.",
+        },
+      });
+    }
+
+    // Check if new email is already in use by another account
+    const existingNew = await prisma.user.findUnique({ where: { email: normalizedNew } });
+    if (existingNew) {
+      return res.status(409).json({
+        error: { code: "EMAIL_EXISTS", message: "An account with this email address already exists." },
+      });
+    }
+
+    // Generate fresh OTP & Token for the new email
+    const rawToken = generateSecureToken(32);
+    const tokenHash = hashToken(rawToken);
+    const otp = generateOtp();
+    const otpHash = hashToken(otp);
+
+    // Update user and replace verification token
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: { email: normalizedNew },
+      }),
+      prisma.verificationToken.deleteMany({
+        where: { email: { in: [normalizedCurrent, normalizedNew] } },
+      }),
+      prisma.verificationToken.create({
+        data: {
+          email: normalizedNew,
+          otpHash: `${tokenHash}:${otpHash}`,
+          attempts: 0,
+          resendCount: 0,
+          lastSentAt: new Date(),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        },
+      }),
+    ]);
+
+    await sendVerificationEmail(normalizedNew, user.name, rawToken, otp);
+
+    return res.json({
+      success: true,
+      email: normalizedNew,
+      message: "Email updated successfully. A verification code has been dispatched to your new address.",
+    });
+  } catch (error) {
+    console.error("[Auth:ChangePendingEmail] Error:", error);
+    return res.status(500).json({
+      error: { code: "SERVER_ERROR", message: "Failed to update email address. Please try again." },
+    });
+  }
+});
+
+// ─── 6C. GET VERIFICATION STATUS ─────────────────────────────────────────────
+authRouter.get("/verification-status", async (req: Request, res: Response) => {
+  const email = typeof req.query.email === "string" ? req.query.email.trim().toLowerCase() : "";
+
+  if (!email) {
+    return res.status(400).json({ error: { message: "Email query parameter is required." } });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      return res.json({ exists: false, emailVerified: false });
+    }
+
+    if (user.emailVerified) {
+      return res.json({ exists: true, emailVerified: true });
+    }
+
+    const token = await prisma.verificationToken.findFirst({
+      where: { email },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!token) {
+      return res.json({
+        exists: true,
+        emailVerified: false,
+        hasActiveOtp: false,
+      });
+    }
+
+    const now = Date.now();
+    const expiresInSeconds = Math.max(0, Math.ceil((token.expiresAt.getTime() - now) / 1000));
+    const timeSinceLast = (now - token.lastSentAt.getTime()) / 1000;
+    const cooldownSeconds = timeSinceLast < 60 ? Math.ceil(60 - timeSinceLast) : 0;
+    const attemptsLeft = Math.max(0, 5 - token.attempts);
+    const resendsLeft = Math.max(0, 3 - token.resendCount);
+
+    return res.json({
+      exists: true,
+      emailVerified: false,
+      hasActiveOtp: expiresInSeconds > 0,
+      expiresInSeconds,
+      cooldownSeconds,
+      attemptsLeft,
+      resendsLeft,
+      isLocked: token.attempts >= 5,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: { message: "Failed to fetch verification status." } });
   }
 });
 
