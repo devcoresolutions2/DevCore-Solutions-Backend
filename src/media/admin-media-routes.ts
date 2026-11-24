@@ -265,3 +265,69 @@ adminMediaRouter.delete("/:id", async (req: AuthenticatedAdminRequest, res: Resp
 
   return res.json({ deleted: true, id });
 });
+
+// ─── REPLACE EXISTING ASSET SAFELY ────────────────────────────────────────────
+
+adminMediaRouter.post("/:id/replace", async (req: AuthenticatedAdminRequest, res: Response) => {
+  const id = String(req.params.id || "");
+  const existing = await prisma.socialMediaAsset.findUnique({ where: { id } });
+  if (!existing) {
+    return res.status(404).json({ error: { code: "NOT_FOUND", message: "Media asset not found." } });
+  }
+
+  const publicId = typeof req.body?.publicId === "string" ? req.body.publicId.trim() : "";
+  const resourceType = req.body?.resourceType === "video" ? "video" : "image";
+  const fileName =
+    typeof req.body?.fileName === "string" && req.body.fileName.trim()
+      ? req.body.fileName.trim().slice(0, 180)
+      : existing.fileName;
+
+  if (!publicId) {
+    return res.status(400).json({ error: { code: "INVALID_INPUT", message: "publicId is required." } });
+  }
+
+  try {
+    const verified = await verifyAndBuildSocialMediaAsset(
+      publicId,
+      resourceType,
+      req.authUser!.id,
+    );
+
+    const updated = await prisma.socialMediaAsset.update({
+      where: { id },
+      data: {
+        publicId: verified.publicId,
+        secureUrl: verified.secureUrl,
+        resourceType: verified.resourceType,
+        format: verified.format,
+        bytes: verified.bytes,
+        width: verified.width,
+        height: verified.height,
+        durationSec: verified.durationSec,
+        fileName,
+      },
+      include: { post: { select: { id: true, title: true, status: true } } },
+    });
+
+    // Clean up old asset only AFTER DB update succeeds
+    const oldRt = existing.resourceType === "video" ? "video" : "image";
+    if (existing.publicId !== verified.publicId) {
+      await deleteSocialMediaFromCloudinary(existing.publicId, oldRt).catch(() => {});
+    }
+
+    await recordAdminAudit({
+      actorId: req.authUser!.id,
+      action: "MEDIA_REPLACED",
+      entity: "SocialMediaAsset",
+      entityId: id,
+      meta: { oldFileName: existing.fileName, newFileName: updated.fileName },
+      req,
+    });
+
+    return res.json({ asset: updated });
+  } catch (err: any) {
+    return res.status(400).json({
+      error: { code: "MEDIA_REPLACE_FAILED", message: err?.message || "Replacement failed." },
+    });
+  }
+});

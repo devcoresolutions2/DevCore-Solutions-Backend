@@ -558,3 +558,79 @@ adminUsersRouter.post(
     return res.json({ sent: delivered });
   },
 );
+
+// ─── BULK USER ACTIONS (SUPER_ADMIN ONLY) ─────────────────────────────────────
+
+adminUsersRouter.post(
+  "/bulk",
+  requireAdminSession(["SUPER_ADMIN"]),
+  async (req: AuthenticatedAdminRequest, res: Response) => {
+    const userIds: string[] = Array.isArray(req.body?.userIds)
+      ? req.body.userIds.filter((x: unknown): x is string => typeof x === "string")
+      : [];
+    const action = typeof req.body?.action === "string" ? req.body.action.toUpperCase() : "";
+    const role = (typeof req.body?.role === "string" ? req.body.role.toUpperCase() : "") as Role;
+
+    if (userIds.length === 0) {
+      return res.status(400).json({ error: { code: "INVALID_INPUT", message: "No users selected." } });
+    }
+    if (!["REVOKE_SESSIONS", "DEACTIVATE", "CHANGE_ROLE"].includes(action)) {
+      return res.status(400).json({ error: { code: "INVALID_ACTION", message: "Unsupported bulk action." } });
+    }
+    if (action === "CHANGE_ROLE" && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ error: { code: "INVALID_ROLE", message: "Invalid target role." } });
+    }
+
+    const targets = await prisma.user.findMany({ where: { id: { in: userIds } } });
+    let succeeded = 0;
+    const skipped: Array<{ id: string; reason: string }> = [];
+
+    for (const target of targets) {
+      if (target.id === req.authUser!.id && (action === "DEACTIVATE" || action === "CHANGE_ROLE")) {
+        skipped.push({ id: target.id, reason: "Cannot modify your own account in bulk." });
+        continue;
+      }
+      if (
+        target.role === "SUPER_ADMIN" &&
+        (action === "DEACTIVATE" || (action === "CHANGE_ROLE" && role !== "SUPER_ADMIN"))
+      ) {
+        const superCount = await prisma.user.count({
+          where: { role: "SUPER_ADMIN", isActive: true },
+        });
+        if (superCount <= 1) {
+          skipped.push({ id: target.id, reason: "Last active SUPER_ADMIN protected." });
+          continue;
+        }
+      }
+
+      if (action === "REVOKE_SESSIONS") {
+        await prisma.session.updateMany({
+          where: { userId: target.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      } else if (action === "DEACTIVATE") {
+        await prisma.$transaction([
+          prisma.user.update({ where: { id: target.id }, data: { isActive: false } }),
+          prisma.session.updateMany({
+            where: { userId: target.id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          }),
+        ]);
+      } else if (action === "CHANGE_ROLE") {
+        await prisma.user.update({ where: { id: target.id }, data: { role } });
+      }
+      succeeded += 1;
+    }
+
+    await recordAdminAudit({
+      actorId: req.authUser!.id,
+      action: `USER_BULK_${action}`,
+      entity: "User",
+      entityId: "BATCH",
+      meta: { succeeded, skippedCount: skipped.length, role: role || undefined },
+      req,
+    });
+
+    return res.json({ succeeded, skipped });
+  },
+);
