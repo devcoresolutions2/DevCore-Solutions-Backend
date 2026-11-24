@@ -267,3 +267,92 @@ adminContentRouter.get("/export", async (req: AuthenticatedAdminRequest, res: Re
     return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Export failed." } });
   }
 });
+
+// ─── CREATE & DELETE SERVICES ─────────────────────────────────────────────────
+
+adminContentRouter.post(
+  "/services",
+  requireAdminSession(["SUPER_ADMIN", "EDITOR"]),
+  async (req: AuthenticatedAdminRequest, res: Response) => {
+    try {
+      const { title, summary, deliverables, icon, displayOrder } = req.body || {};
+      if (!title?.trim() || !summary?.trim()) {
+        return res.status(400).json({
+          error: { code: "INVALID_INPUT", message: "Service title and summary are required." },
+        });
+      }
+
+      const baseSlug = String(title)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      const existing = await prisma.service.findUnique({ where: { slug: baseSlug } });
+      const slug = existing ? `${baseSlug}-${Date.now().toString(36)}` : baseSlug || `service-${Date.now()}`;
+
+      const deliverablesList = Array.isArray(deliverables)
+        ? deliverables.map((d) => String(d).trim()).filter(Boolean)
+        : String(deliverables || "")
+            .split(",")
+            .map((d) => d.trim())
+            .filter(Boolean);
+
+      const service = await prisma.service.create({
+        data: {
+          slug,
+          title: String(title).trim(),
+          summary: String(summary).trim(),
+          deliverables: deliverablesList,
+          icon: String(icon || "Layers").trim() || "Layers",
+          displayOrder: Number.isFinite(Number(displayOrder)) ? Number(displayOrder) : 0,
+          visible: true,
+          status: "PUBLISHED",
+        },
+      });
+
+      await recordAdminAudit({
+        actorId: req.authUser!.id,
+        action: "SERVICE_CREATED",
+        entity: "Service",
+        entityId: service.id,
+        meta: { title: service.title, slug: service.slug },
+        req,
+      });
+
+      return res.status(201).json({ service });
+    } catch (err) {
+      console.error("Create service error:", err);
+      return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to create service." } });
+    }
+  },
+);
+
+adminContentRouter.delete(
+  "/services/:id",
+  requireAdminSession(["SUPER_ADMIN", "EDITOR"]),
+  async (req: AuthenticatedAdminRequest, res: Response) => {
+    try {
+      const id = String(req.params.id || "");
+      const existing = await prisma.service.findUnique({ where: { id } });
+      if (!existing) {
+        return res.status(404).json({ error: { code: "NOT_FOUND", message: "Service not found." } });
+      }
+
+      await prisma.service.delete({ where: { id } });
+
+      await recordAdminAudit({
+        actorId: req.authUser!.id,
+        action: "SERVICE_DELETED",
+        entity: "Service",
+        entityId: id,
+        meta: { title: existing.title },
+        req,
+      });
+
+      return res.json({ deleted: true, id });
+    } catch (err) {
+      console.error("Delete service error:", err);
+      return res.status(500).json({ error: { code: "SERVER_ERROR", message: "Failed to delete service." } });
+    }
+  },
+);
