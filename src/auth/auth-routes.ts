@@ -9,6 +9,7 @@ import {
 } from "../security/hash";
 import { checkRateLimit } from "../security/rate-limit";
 import { sendVerificationEmail, sendPasswordResetOtpEmail, sendPasswordResetEmail } from "../emails/mailer";
+import { recordAuthEvent } from "../account/account-routes";
 
 export const authRouter = Router();
 
@@ -250,6 +251,15 @@ authRouter.post("/signin", async (req: Request, res: Response) => {
 
     const isValid = await verifyPassword(password, user.passwordHash);
     if (!isValid) {
+      await recordAuthEvent({
+        type: "LOGIN_FAILED",
+        status: "FAILED",
+        userId: user.id,
+        email: user.email,
+        ip: String(ip),
+        userAgent: req.headers["user-agent"] || null,
+        metadata: { reason: "invalid_password" },
+      });
       return res.status(401).json({
         error: {
           code: "INVALID_CREDENTIALS",
@@ -304,14 +314,27 @@ authRouter.post("/signin", async (req: Request, res: Response) => {
     const isAdmin = user.role === "SUPER_ADMIN" || user.role === "EDITOR";
     const redirectUrl = isAdmin ? "/admin/dashboard" : "/";
 
+    await recordAuthEvent({
+      type: "LOGIN_SUCCESS",
+      status: "SUCCESS",
+      userId: user.id,
+      email: user.email,
+      ip: String(ip),
+      userAgent: req.headers["user-agent"] || null,
+      metadata: { method: "credentials" },
+    });
+
     return res.json({
       success: true,
       user: {
         id: user.id,
         name: user.name,
+        username: user.username,
         email: user.email,
         role: user.role,
         emailVerified: user.emailVerified,
+        avatarUrl: user.avatarUrl,
+        hasPassword: Boolean(user.passwordHash),
       },
       redirectUrl,
     });
@@ -353,10 +376,12 @@ authRouter.get("/me", async (req: Request, res: Response) => {
       user: {
         id: session.user.id,
         name: session.user.name,
+        username: session.user.username,
         email: session.user.email,
         role: session.user.role,
         emailVerified: session.user.emailVerified,
         avatarUrl: session.user.avatarUrl,
+        hasPassword: Boolean(session.user.passwordHash),
       },
     });
   } catch (error) {
@@ -1169,6 +1194,15 @@ authRouter.get("/google", (req: Request, res: Response) => {
     return res.status(500).json({ error: { message: "Google OAuth credentials not configured." } });
   }
 
+  if (req.query.mode === "link") {
+    res.cookie("devcore_oauth_next", "/account/settings?tab=providers", {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 5 * 60 * 1000,
+    });
+  }
+
   const redirectUri =
     process.env.GOOGLE_REDIRECT_URI || `${BACKEND_URL}/api/auth/google/callback`;
   const state = generateSecureToken(16);
@@ -1190,6 +1224,15 @@ const handleGoogleCallback = async (req: Request, res: Response) => {
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (req.query.mode === "link") {
+    res.cookie("devcore_oauth_next", "/account/settings?tab=providers", {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 5 * 60 * 1000,
+    });
+  }
+
   const redirectUri =
     process.env.GOOGLE_REDIRECT_URI || `${BACKEND_URL}/api/auth/google/callback`;
 
@@ -1231,6 +1274,49 @@ const handleGoogleCallback = async (req: Request, res: Response) => {
 
     if (!email) {
       return res.redirect(`${APP_URL}/auth/signin?error=email_not_provided`);
+    }
+
+    const cookies = parseCookies(req);
+    const oauthNext = cookies["devcore_oauth_next"];
+    if (oauthNext) {
+      res.clearCookie("devcore_oauth_next", { path: "/" });
+    }
+
+    // If initiated in "link" mode from an active session, attach Google to current user
+    const currentToken = cookies["devcore_session"];
+    if (oauthNext && currentToken) {
+      const currentSession = await prisma.session.findUnique({
+        where: { tokenHash: hashToken(currentToken) },
+        include: { user: true },
+      });
+      if (currentSession && !currentSession.revokedAt && new Date() <= currentSession.expiresAt) {
+        const existingOwner = await prisma.account.findUnique({
+          where: { provider_providerAccountId: { provider: "google", providerAccountId: googleId } },
+        });
+        if (existingOwner && existingOwner.userId !== currentSession.user.id) {
+          return res.redirect(`${APP_URL}/account/settings?tab=providers&error=provider_in_use`);
+        }
+        if (!existingOwner) {
+          await prisma.account.create({
+            data: {
+              userId: currentSession.user.id,
+              provider: "google",
+              providerAccountId: googleId,
+              accessToken,
+            },
+          });
+          await recordAuthEvent({
+            type: "PROVIDER_CONNECTED",
+            status: "SUCCESS",
+            userId: currentSession.user.id,
+            email: currentSession.user.email,
+            ip: req.ip || null,
+            userAgent: req.headers["user-agent"] || null,
+            metadata: { provider: "google" },
+          });
+        }
+        return res.redirect(`${APP_URL}/account/settings?tab=providers&linked=google`);
+      }
     }
 
     // Role check against admin whitelist
@@ -1307,6 +1393,26 @@ const handleGoogleCallback = async (req: Request, res: Response) => {
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
 
+    await recordAuthEvent({
+      type: "LOGIN_SUCCESS",
+      status: "SUCCESS",
+      userId: user.id,
+      email: user.email,
+      ip: req.ip || null,
+      userAgent: req.headers["user-agent"] || null,
+      metadata: { method: "google" },
+    });
+
+    await recordAuthEvent({
+      type: "LOGIN_SUCCESS",
+      status: "SUCCESS",
+      userId: user.id,
+      email: user.email,
+      ip: req.ip || null,
+      userAgent: req.headers["user-agent"] || null,
+      metadata: { method: "github" },
+    });
+
     const isAdmin = user.role === "SUPER_ADMIN" || user.role === "EDITOR";
     const dest = isAdmin ? "/admin/dashboard" : "/";
     return res.redirect(`${APP_URL}${dest}`);
@@ -1324,6 +1430,15 @@ authRouter.get("/github", (req: Request, res: Response) => {
   const clientId = process.env.GITHUB_CLIENT_ID;
   if (!clientId) {
     return res.status(500).json({ error: { message: "GitHub OAuth credentials not configured." } });
+  }
+
+  if (req.query.mode === "link") {
+    res.cookie("devcore_oauth_next", "/account/settings?tab=providers", {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 5 * 60 * 1000,
+    });
   }
 
   const redirectUri = `${BACKEND_URL}/api/auth/github/callback`;
@@ -1468,6 +1583,26 @@ const handleGitHubCallback = async (req: Request, res: Response) => {
       sameSite: "lax",
       path: "/",
       maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
+    await recordAuthEvent({
+      type: "LOGIN_SUCCESS",
+      status: "SUCCESS",
+      userId: user.id,
+      email: user.email,
+      ip: req.ip || null,
+      userAgent: req.headers["user-agent"] || null,
+      metadata: { method: "google" },
+    });
+
+    await recordAuthEvent({
+      type: "LOGIN_SUCCESS",
+      status: "SUCCESS",
+      userId: user.id,
+      email: user.email,
+      ip: req.ip || null,
+      userAgent: req.headers["user-agent"] || null,
+      metadata: { method: "github" },
     });
 
     const isAdmin = user.role === "SUPER_ADMIN" || user.role === "EDITOR";

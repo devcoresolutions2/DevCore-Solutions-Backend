@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { prisma } from "./server/db/prisma";
 import { authRouter } from "./auth/auth-routes";
+import { accountRouter } from "./account/account-routes";
 import { BRANDING_LOGOS } from "./services/media.service";
 
 const app = express();
@@ -16,8 +17,9 @@ app.use(
 );
 app.use(express.json());
 
-// Authentication Routes
+// Authentication & Account Management Routes
 app.use("/api/auth", authRouter);
+app.use("/api/account", accountRouter);
 
 // Public Branding Logos (Cloudinary Powered)
 app.get("/api/public/branding/logos", (_req, res) => {

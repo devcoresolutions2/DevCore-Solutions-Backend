@@ -54,5 +54,86 @@ export async function uploadToCloudinary(
 }
 
 export async function deleteFromCloudinary(publicId: string): Promise<any> {
-  return await cloudinary.uploader.destroy(publicId);
+  return await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
+}
+
+export const AVATAR_FOLDER = "devcore/users/avatars";
+export const MAX_AVATAR_BYTES = 25 * 1024 * 1024; // 25 MB
+export const ALLOWED_AVATAR_FORMATS = ["jpg", "jpeg", "png", "webp"];
+
+export function generateAvatarUploadSignature(userId: string) {
+  const config = cloudinary.config();
+  if (!config.cloud_name || !config.api_key || !config.api_secret) {
+    throw new Error("Cloudinary credentials are not configured on the server.");
+  }
+
+  const timestamp = Math.round(Date.now() / 1000);
+  const publicId = `avatar_${userId}_${Date.now()}`;
+  const eager = "c_fill,g_face,w_512,h_512,f_auto,q_auto";
+  const allowedFormats = ALLOWED_AVATAR_FORMATS.join(",");
+
+  const paramsToSign = {
+    allowed_formats: allowedFormats,
+    eager,
+    folder: AVATAR_FOLDER,
+    public_id: publicId,
+    timestamp,
+  };
+
+  const signature = cloudinary.utils.api_sign_request(paramsToSign, config.api_secret);
+
+  return {
+    signature,
+    timestamp,
+    apiKey: config.api_key,
+    cloudName: config.cloud_name,
+    folder: AVATAR_FOLDER,
+    publicId,
+    eager,
+    allowedFormats,
+    maxFileSizeBytes: MAX_AVATAR_BYTES,
+  };
+}
+
+export async function verifyAndBuildAvatarResult(publicId: string, expectedUserId: string) {
+  const expectedPrefix = `${AVATAR_FOLDER}/avatar_${expectedUserId}_`;
+  if (!publicId || typeof publicId !== "string" || !publicId.startsWith(expectedPrefix)) {
+    throw new Error("Invalid or unauthorized Cloudinary asset identifier.");
+  }
+
+  const resource = await cloudinary.api.resource(publicId, { resource_type: "image" });
+
+  if (!resource || resource.resource_type !== "image") {
+    throw new Error("Uploaded asset is not a valid image.");
+  }
+
+  const format = String(resource.format || "").toLowerCase();
+  if (!ALLOWED_AVATAR_FORMATS.includes(format)) {
+    await deleteFromCloudinary(publicId).catch(() => {});
+    throw new Error(`Unsupported image format: ${format}. Allowed formats: JPG, PNG, WebP.`);
+  }
+
+  if (typeof resource.bytes === "number" && resource.bytes > MAX_AVATAR_BYTES) {
+    await deleteFromCloudinary(publicId).catch(() => {});
+    throw new Error("Uploaded image exceeds the 25 MB maximum size limit.");
+  }
+
+  const optimizedUrl = cloudinary.url(resource.public_id, {
+    secure: true,
+    version: resource.version,
+    transformation: [
+      { width: 512, height: 512, crop: "fill", gravity: "face" },
+      { fetch_format: "auto", quality: "auto" },
+    ],
+  });
+
+  return {
+    url: optimizedUrl,
+    publicId: resource.public_id as string,
+    version: Number(resource.version) || undefined,
+    bytes: Number(resource.bytes) || 0,
+    format,
+    width: Number(resource.width) || 0,
+    height: Number(resource.height) || 0,
+  };
 }
