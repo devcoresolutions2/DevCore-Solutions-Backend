@@ -9,6 +9,7 @@ import {
   publicContactEventsRouter,
   adminLeadsRouter,
 } from "./leads/leads-routes";
+import { adminSocialRouter } from "./social/social-routes";
 import { BRANDING_LOGOS } from "./services/media.service";
 
 const app = express();
@@ -30,6 +31,9 @@ app.use("/api/account", accountRouter);
 app.use("/api/public/leads", publicLeadsRouter);
 app.use("/api/public/contact-events", publicContactEventsRouter);
 app.use("/api/admin/leads", adminLeadsRouter);
+
+// Admin Social Integrations & Webhook Management Routes
+app.use("/api/admin/social", adminSocialRouter);
 
 // Public Branding Logos (Cloudinary Powered)
 app.get("/api/public/branding/logos", (_req, res) => {

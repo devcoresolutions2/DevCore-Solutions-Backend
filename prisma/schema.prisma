@@ -448,16 +448,79 @@ model ContactSettings {
 }
 
 model SocialConnection {
-  id             String         @id @default(cuid())
-  platform       SocialPlatform @unique
-  accountName    String
-  accountId      String
-  accessToken    String
-  refreshToken   String?
-  keyVersion     Int            @default(1)
-  tokenExpiresAt DateTime?
-  isActive       Boolean        @default(true)
-  updatedAt      DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  platform          SocialPlatform @unique
+  accountName       String
+  accountId         String
+  accountHandle     String?
+  avatarUrl         String?
+  accessToken       String
+  refreshToken      String?
+  keyVersion        Int            @default(1)
+  tokenExpiresAt    DateTime?
+  scopes            String[]       @default([])
+  status            String         @default("DISCONNECTED")
+  isActive          Boolean        @default(true)
+  connectedAt       DateTime?
+  connectedById     String?
+  lastSyncAt        DateTime?
+  lastHealthCheckAt DateTime?
+  lastLatencyMs     Int?
+  lastError         String?
+  metadata          Json?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+model OAuthState {
+  id           String         @id @default(cuid())
+  state        String         @unique
+  platform     SocialPlatform
+  codeVerifier String?
+  userId       String
+  redirectPath String?
+  expiresAt    DateTime
+  createdAt    DateTime       @default(now())
+
+  @@index([expiresAt])
+}
+
+model WebhookEndpoint {
+  id              String            @id @default(cuid())
+  name            String
+  url             String
+  events          String[]          @default([])
+  secretEncrypted String
+  secretPrefix    String
+  keyVersion      Int               @default(1)
+  isActive        Boolean           @default(true)
+  createdById     String?
+  lastDeliveryAt  DateTime?
+  lastStatusCode  Int?
+  lastError       String?
+  deliveries      WebhookDelivery[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([isActive, createdAt])
+}
+
+model WebhookDelivery {
+  id             String          @id @default(cuid())
+  endpointId     String
+  endpoint       WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  eventType      String
+  payload        Json
+  responseStatus Int?
+  responseBody   String?
+  latencyMs      Int?
+  attemptCount   Int             @default(1)
+  status         String
+  errorMessage   String?
+  deliveredAt    DateTime        @default(now())
+
+  @@index([endpointId, deliveredAt])
+  @@index([status, deliveredAt])
 }
 
 model SocialPost {
