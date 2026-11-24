@@ -4,6 +4,11 @@ import cors from "cors";
 import { prisma } from "./server/db/prisma";
 import { authRouter } from "./auth/auth-routes";
 import { accountRouter } from "./account/account-routes";
+import {
+  publicLeadsRouter,
+  publicContactEventsRouter,
+  adminLeadsRouter,
+} from "./leads/leads-routes";
 import { BRANDING_LOGOS } from "./services/media.service";
 
 const app = express();
@@ -20,6 +25,11 @@ app.use(express.json());
 // Authentication & Account Management Routes
 app.use("/api/auth", authRouter);
 app.use("/api/account", accountRouter);
+
+// Lead Intake & Admin Lead Management Routes
+app.use("/api/public/leads", publicLeadsRouter);
+app.use("/api/public/contact-events", publicContactEventsRouter);
+app.use("/api/admin/leads", adminLeadsRouter);
 
 // Public Branding Logos (Cloudinary Powered)
 app.get("/api/public/branding/logos", (_req, res) => {
