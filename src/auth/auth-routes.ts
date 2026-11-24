@@ -54,7 +54,7 @@ authRouter.post("/signup", async (req: Request, res: Response) => {
     });
   }
 
-  const { name, email, password, termsAccepted } = req.body;
+  const { name, email, password, termsAccepted, inviteToken } = req.body;
 
   if (!name || typeof name !== "string" || name.trim().length < 2) {
     return res.status(400).json({
@@ -155,9 +155,29 @@ authRouter.post("/signup", async (req: Request, res: Response) => {
       });
     }
 
-    // Role assignment: Only emails in ADMIN_WHITELIST_EMAILS get SUPER_ADMIN, otherwise USER
+    // Role assignment: valid single-use UserInvitation or ADMIN_WHITELIST_EMAILS, otherwise USER
     const adminWhitelist = getAdminWhitelist();
-    const role = adminWhitelist.includes(normalizedEmail) ? "SUPER_ADMIN" : "USER";
+    let role: string = adminWhitelist.includes(normalizedEmail) ? "SUPER_ADMIN" : "USER";
+    let acceptedInviteId: string | null = null;
+
+    if (typeof inviteToken === "string" && inviteToken.trim()) {
+      const inviteHash = hashToken(inviteToken.trim());
+      const invite = await prisma.userInvitation.findUnique({ where: { tokenHash: inviteHash } });
+      if (
+        invite &&
+        invite.email === normalizedEmail &&
+        !invite.acceptedAt &&
+        !invite.revokedAt &&
+        new Date() <= invite.expiresAt
+      ) {
+        role = invite.role;
+        acceptedInviteId = invite.id;
+      } else {
+        return res.status(400).json({
+          error: { code: "INVALID_INVITATION", message: "Invitation link is invalid or expired." },
+        });
+      }
+    }
 
     const passwordHash = await hashPassword(password);
 
@@ -167,9 +187,28 @@ authRouter.post("/signup", async (req: Request, res: Response) => {
         email: normalizedEmail,
         passwordHash,
         role: role as any,
-        emailVerified: false,
+        emailVerified: Boolean(acceptedInviteId),
       },
     });
+
+    if (acceptedInviteId) {
+      await prisma.userInvitation.update({
+        where: { id: acceptedInviteId },
+        data: { acceptedAt: new Date() },
+      });
+      await prisma.auditLog
+        .create({
+          data: {
+            actorId: user.id,
+            action: "INVITATION_ACCEPTED",
+            entity: "UserInvitation",
+            entityId: acceptedInviteId,
+            meta: { email: normalizedEmail, role },
+            ip,
+          },
+        })
+        .catch(() => {});
+    }
 
     // Invalidate any previous unverified tokens for this email
     await prisma.verificationToken.deleteMany({ where: { email: normalizedEmail } });
