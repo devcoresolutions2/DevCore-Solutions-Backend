@@ -185,3 +185,76 @@ export async function sendPasswordResetEmail(
 ): Promise<boolean> {
   return sendPasswordResetOtpEmail(to, name, token);
 }
+
+export async function sendAdminInvitationEmail(params: {
+  to: string;
+  name: string;
+  role: string;
+  inviteUrl: string;
+  inviterName: string;
+  message?: string;
+}): Promise<boolean> {
+  const mail = getTransporter();
+  if (!mail) return false;
+
+  const safeMsg = params.message
+    ? `<p style="color:#c6c7c4;font-size:13px;background:#0b0e11;padding:12px;border-radius:8px;">${params.message.replace(/[<>]/g, "")}</p>`
+    : "";
+
+  const html = `
+    <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f1215;color:#FAF8F5;padding:24px;">
+      <div style="max-width:540px;margin:0 auto;background:#161a1e;border:1px solid #283038;border-radius:16px;padding:32px;">
+        <div style="font-family:monospace;font-size:11px;color:#34d399;margin-bottom:12px;">DEVCORE CONTROL HUB INVITATION</div>
+        <h2 style="margin:0 0 12px;color:#fff;">You have been invited to DevCore</h2>
+        <p style="color:#c6c7c4;font-size:14px;line-height:1.6;">
+          Hello ${params.name.replace(/[<>]/g, "")}, ${params.inviterName.replace(/[<>]/g, "")} has invited you to join DevCore with the role <strong>${params.role}</strong>.
+        </p>
+        ${safeMsg}
+        <a href="${params.inviteUrl}" style="display:inline-block;background:#546571;color:#fff;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;margin:16px 0;">Accept Invitation</a>
+        <p style="color:#73777b;font-size:12px;">This single-use invitation link expires in 48 hours.</p>
+      </div>
+    </div>
+  `;
+
+  try {
+    await mail.sendMail({
+      from: `"DEVCORE Solutions" <${process.env.SMTP_USER}>`,
+      to: params.to,
+      subject: `Invitation to DEVCORE (${params.role})`,
+      html,
+    });
+    return true;
+  } catch (err) {
+    console.error("[Mailer] Failed to send admin invitation email:", err);
+    return false;
+  }
+}
+
+export async function verifySmtpConnectivity(): Promise<{
+  configured: boolean;
+  ok: boolean;
+  latencyMs: number | null;
+  error: string | null;
+}> {
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS?.trim();
+  if (!user || !pass) {
+    return { configured: false, ok: false, latencyMs: null, error: "SMTP credentials not configured." };
+  }
+  const mail = getTransporter();
+  if (!mail) {
+    return { configured: false, ok: false, latencyMs: null, error: "SMTP transporter unavailable." };
+  }
+  const start = Date.now();
+  try {
+    await mail.verify();
+    return { configured: true, ok: true, latencyMs: Date.now() - start, error: null };
+  } catch (err: any) {
+    return {
+      configured: true,
+      ok: false,
+      latencyMs: Date.now() - start,
+      error: err?.message ? String(err.message).slice(0, 200) : "SMTP verification failed.",
+    };
+  }
+}

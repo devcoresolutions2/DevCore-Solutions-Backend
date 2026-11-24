@@ -24,6 +24,8 @@ import {
   SUPPORTED_WEBHOOK_EVENTS,
   validateWebhookUrl,
 } from "./webhook.service";
+import { adminBroadcastRouter } from "./broadcast-routes";
+import { adminSocialManageRouter } from "./social-manage-routes";
 
 export const adminSocialRouter = Router();
 
@@ -296,6 +298,8 @@ adminSocialRouter.get("/oauth/:key/callback", async (req: Request, res: Response
 
 // All remaining routes require authenticated Admin/Editor session
 adminSocialRouter.use(requireAdmin);
+adminSocialRouter.use("/broadcasts", adminBroadcastRouter);
+adminSocialRouter.use("/manage", adminSocialManageRouter);
 
 // ─── OVERVIEW & METRICS ───────────────────────────────────────────────────────
 

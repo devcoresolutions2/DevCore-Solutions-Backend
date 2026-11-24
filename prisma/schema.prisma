@@ -27,6 +27,7 @@ enum PostStatus {
   PUBLISHED
   PARTIAL_FAILED
   FAILED
+  CANCELLED
 }
 
 enum SocialPlatform {
@@ -432,19 +433,43 @@ model ContactEvent {
 }
 
 model ContactSettings {
-  id              String   @id @default("singleton")
-  whatsappNumber  String
-  phone           String
-  publicEmail     String
-  notifyEmails    String[]
-  address         String?
-  timezone        String   @default("Asia/Dhaka")
-  businessHours   Json
-  bookingUrl      String?
-  whatsappMessage String   @default("Hello DevCore, I would like to discuss a project.")
-  callbackPromise String   @default("We call back within 1 business hour")
-  socialLinks     Json?
-  updatedAt       DateTime @updatedAt
+  id                     String   @id @default("singleton")
+  organizationName       String?  @default("DevCore Solutions")
+  whatsappNumber         String
+  phone                  String
+  publicEmail            String
+  notifyEmails           String[]
+  address                String?
+  timezone               String   @default("Asia/Dhaka")
+  businessHours          Json
+  bookingUrl             String?
+  whatsappMessage        String   @default("Hello DevCore, I would like to discuss a project.")
+  callbackPromise        String   @default("We call back within 1 business hour")
+  afterHoursPolicy       String   @default("NEXT_BUSINESS_DAY")
+  incidentContact        String?
+  secureMessagingContact String?
+  socialLinks            Json?
+  seoDefaults            Json?
+  brandAssets            Json?
+  updatedById            String?
+  updatedAt              DateTime @updatedAt
+}
+
+model UserInvitation {
+  id          String    @id @default(cuid())
+  email       String
+  name        String
+  role        Role      @default(USER)
+  tokenHash   String    @unique
+  message     String?
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
 }
 
 model SocialConnection {
@@ -528,11 +553,15 @@ model SocialPost {
   title           String?
   baseContent     String
   platformContent Json?
+  variables       Json?
   mediaUrls       String[]
+  mediaAssets     SocialMediaAsset[]
   targetPlatforms SocialPlatform[]
   status          PostStatus          @default(DRAFT)
   scheduledFor    DateTime?
+  timezone        String?             @default("UTC")
   publishedAt     DateTime?
+  cancelledAt     DateTime?
   showcaseId      String?
   deliveryLogs    SocialDeliveryLog[]
   authorId        String
@@ -543,6 +572,30 @@ model SocialPost {
   @@index([status, scheduledFor])
 }
 
+model SocialMediaAsset {
+  id           String      @id @default(cuid())
+  postId       String?
+  post         SocialPost? @relation(fields: [postId], references: [id], onDelete: SetNull)
+  uploadedById String
+  publicId     String      @unique
+  secureUrl    String
+  resourceType String
+  format       String
+  bytes        Int
+  width        Int?
+  height       Int?
+  durationSec  Float?
+  fileName     String
+  altText      String?
+  tags         String[]    @default([])
+  folder       String?
+  sortOrder    Int         @default(0)
+  createdAt    DateTime    @default(now())
+
+  @@index([postId, sortOrder])
+  @@index([uploadedById, createdAt])
+}
+
 model SocialDeliveryLog {
   id             String         @id @default(cuid())
   postId         String
@@ -551,6 +604,8 @@ model SocialDeliveryLog {
   status         String
   externalPostId String?
   externalUrl    String?
+  latencyMs      Int?
+  attemptCount   Int            @default(1)
   error          Json?
   createdAt      DateTime       @default(now())
 
