@@ -1000,6 +1000,42 @@ authRouter.post("/resend-reset-otp", async (req: Request, res: Response) => {
   }
 });
 
+// ─── 9B. VALIDATE RESET AUTHORIZATION TOKEN ──────────────────────────────────
+authRouter.post("/validate-reset-token", async (req: Request, res: Response) => {
+  const { token } = req.body;
+  if (!token || typeof token !== "string") {
+    return res.status(400).json({ valid: false, message: "Reset authorization token is required." });
+  }
+
+  try {
+    const tokenHash = hashToken(token);
+    const resetRecord = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!resetRecord || resetRecord.usedAt || new Date() > resetRecord.expiresAt) {
+      return res.status(400).json({
+        valid: false,
+        message: "Password recovery authorization token has expired or is invalid.",
+      });
+    }
+
+    const expiresInSeconds = Math.max(0, Math.floor((resetRecord.expiresAt.getTime() - Date.now()) / 1000));
+
+    return res.json({
+      valid: true,
+      message: "Token is active and authorized for credential reset.",
+      expiresInSeconds,
+    });
+  } catch (error) {
+    console.error("[Auth] Validate reset token error:", error);
+    return res.status(500).json({
+      valid: false,
+      message: "Failed to validate reset authorization token.",
+    });
+  }
+});
+
 // ─── 10. RESET PASSWORD (CONSUME AUTHORIZATION TOKEN) ─────────────────────────
 authRouter.post("/reset-password", async (req: Request, res: Response) => {
   const { token, password } = req.body;
