@@ -102,11 +102,55 @@ authRouter.post("/signup", async (req: Request, res: Response) => {
     });
 
     if (existing) {
-      return res.status(409).json({
-        error: {
-          code: "EMAIL_EXISTS",
-          message: "An account with this work email already exists.",
+      if (existing.emailVerified) {
+        return res.status(409).json({
+          error: {
+            code: "EMAIL_EXISTS",
+            message: "An account with this work email already exists.",
+          },
+        });
+      }
+
+      // If user exists but is not yet verified, refresh their registration & dispatch fresh OTP
+      const passwordHash = await hashPassword(password);
+      await prisma.user.update({
+        where: { id: existing.id },
+        data: {
+          name: name.trim(),
+          passwordHash,
         },
+      });
+
+      // Invalidate any previous unverified tokens for this email
+      await prisma.verificationToken.deleteMany({ where: { email: normalizedEmail } });
+
+      // Create new verification token & OTP (10-minute expiry)
+      const rawToken = generateSecureToken(32);
+      const tokenHash = hashToken(rawToken);
+      const otp = generateOtp();
+      const otpHash = hashToken(otp);
+
+      await prisma.verificationToken.create({
+        data: {
+          email: normalizedEmail,
+          otpHash: `${tokenHash}:${otpHash}`,
+          attempts: 0,
+          resendCount: 0,
+          lastSentAt: new Date(),
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
+        },
+      });
+
+      // Send verification email
+      const emailDelivered = await sendVerificationEmail(normalizedEmail, existing.name, rawToken, otp);
+
+      return res.status(200).json({
+        success: true,
+        message: emailDelivered
+          ? "Account credentials refreshed. A new verification code has been dispatched to your email."
+          : "Account created, but SMTP delivery failed. Please request a new code via Resend.",
+        email: normalizedEmail,
+        deliveryStatus: emailDelivered ? "DELIVERED" : "SMTP_FAILED",
       });
     }
 
