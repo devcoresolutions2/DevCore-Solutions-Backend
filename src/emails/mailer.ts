@@ -59,14 +59,15 @@ export async function sendVerificationEmail(
           <div class="otp-box">
             <div style="font-size: 11px; color: #8b949e; margin-bottom: 6px; font-family: monospace;">ONE-TIME SECURITY CODE</div>
             <div class="otp-code">${otp}</div>
-            <div style="font-size: 11px; color: #8b949e; margin-top: 6px;">Expires in 15 minutes</div>
+            <div style="font-size: 11px; color: #8b949e; margin-top: 6px;">Expires in 10 minutes</div>
           </div>
 
           <div style="text-align: center;">
             <a href="${verifyUrl}" class="btn">Verify Account Directly</a>
           </div>
 
-          <p style="font-size: 12px; color: #8b949e; margin-top: 24px;">If you did not initiate this registration request, please disregard this transmission.</p>
+          <p style="font-size: 12px; color: #f87171; margin-top: 16px;"><strong>Security Warning:</strong> Never share this code with anyone. DevCore engineers will never request this verification code by phone, chat, or email.</p>
+          <p style="font-size: 12px; color: #8b949e; margin-top: 12px;">If you did not initiate this registration request, please disregard this transmission.</p>
 
           <div class="footer">
             DEVCORE SOLUTIONS INC. • ZERO-DRIFT INFRASTRUCTURE • CHATTOGRAM / DHAKA
