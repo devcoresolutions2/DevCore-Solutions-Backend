@@ -34,5 +34,6 @@ export function generateSecureToken(bytes = 32): string {
 }
 
 export function generateOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
+  // Cryptographically secure 6-digit numeric OTP using CSPRNG
+  return crypto.randomInt(100000, 1000000).toString();
 }

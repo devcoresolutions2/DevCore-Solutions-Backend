@@ -3,6 +3,19 @@ import express from "express";
 import cors from "cors";
 import { prisma } from "./server/db/prisma";
 import { authRouter } from "./auth/auth-routes";
+import { accountRouter } from "./account/account-routes";
+import {
+  publicLeadsRouter,
+  publicContactEventsRouter,
+  adminLeadsRouter,
+} from "./leads/leads-routes";
+import { adminSocialRouter } from "./social/social-routes";
+import { startBroadcastScheduler } from "./social/broadcast.service";
+import { adminUsersRouter } from "./users/admin-users-routes";
+import { adminAuditRouter } from "./audit/audit-routes";
+import { adminSettingsRouter, publicSettingsRouter } from "./settings/admin-settings-routes";
+import { adminMediaRouter } from "./media/admin-media-routes";
+import { adminContentRouter } from "./content/admin-content-routes";
 import { BRANDING_LOGOS } from "./services/media.service";
 
 const app = express();
@@ -16,8 +29,25 @@ app.use(
 );
 app.use(express.json());
 
-// Authentication Routes
+// Authentication & Account Management Routes
 app.use("/api/auth", authRouter);
+app.use("/api/account", accountRouter);
+
+// Lead Intake & Admin Lead Management Routes
+app.use("/api/public/leads", publicLeadsRouter);
+app.use("/api/public/contact-events", publicContactEventsRouter);
+app.use("/api/admin/leads", adminLeadsRouter);
+
+// Admin Social Integrations & Webhook Management Routes
+app.use("/api/admin/social", adminSocialRouter);
+
+// Admin Users & IAM, Audit Log, Platform Settings, and Media Library Routes
+app.use("/api/admin/users", adminUsersRouter);
+app.use("/api/admin/audit", adminAuditRouter);
+app.use("/api/admin/settings", adminSettingsRouter);
+app.use("/api/public/settings", publicSettingsRouter);
+app.use("/api/admin/media", adminMediaRouter);
+app.use("/api/admin/content", adminContentRouter);
 
 // Public Branding Logos (Cloudinary Powered)
 app.get("/api/public/branding/logos", (_req, res) => {
@@ -880,4 +910,5 @@ app.get("/api/admin/blog/stats", (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`DevCore Backend running on http://localhost:${PORT}`);
+  startBroadcastScheduler();
 });
