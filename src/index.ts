@@ -27,7 +27,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 // Authentication & Account Management Routes
 app.use("/api/auth", authRouter);
