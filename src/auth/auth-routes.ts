@@ -1439,16 +1439,6 @@ const handleGoogleCallback = async (req: Request, res: Response) => {
       email: user.email,
       ip: req.ip || null,
       userAgent: req.headers["user-agent"] || null,
-      metadata: { method: "google" },
-    });
-
-    await recordAuthEvent({
-      type: "LOGIN_SUCCESS",
-      status: "SUCCESS",
-      userId: user.id,
-      email: user.email,
-      ip: req.ip || null,
-      userAgent: req.headers["user-agent"] || null,
       metadata: { method: "github" },
     });
 
@@ -1480,7 +1470,8 @@ authRouter.get("/github", (req: Request, res: Response) => {
     });
   }
 
-  const redirectUri = `${BACKEND_URL}/api/auth/github/callback`;
+  const redirectUri =
+    process.env.GITHUB_REDIRECT_URI || `${BACKEND_URL}/api/auth/github/callback`;
   const state = generateSecureToken(16);
   const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(
     redirectUri
@@ -1622,16 +1613,6 @@ const handleGitHubCallback = async (req: Request, res: Response) => {
       sameSite: "lax",
       path: "/",
       maxAge: 30 * 24 * 60 * 60 * 1000,
-    });
-
-    await recordAuthEvent({
-      type: "LOGIN_SUCCESS",
-      status: "SUCCESS",
-      userId: user.id,
-      email: user.email,
-      ip: req.ip || null,
-      userAgent: req.headers["user-agent"] || null,
-      metadata: { method: "google" },
     });
 
     await recordAuthEvent({
