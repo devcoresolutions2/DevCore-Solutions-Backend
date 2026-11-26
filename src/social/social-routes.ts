@@ -27,6 +27,15 @@ import {
 import { adminBroadcastRouter } from "./broadcast-routes";
 import { adminSocialManageRouter } from "./social-manage-routes";
 
+function getRequestOrigin(req: Request): string {
+  const configured = process.env.BACKEND_URL?.trim().replace(/\/+$/, "");
+  if (configured) return configured;
+  const protoHeader = req.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const proto = protoHeader || req.protocol || (process.env.VERCEL ? "https" : "http");
+  const host = req.get("x-forwarded-host")?.split(",")[0]?.trim() || req.get("host") || "localhost:5000";
+  return `${proto}://${host}`;
+}
+
 export const adminSocialRouter = Router();
 
 interface AdminAuthRequest extends Request {
@@ -212,7 +221,7 @@ adminSocialRouter.get("/oauth/:key/callback", async (req: Request, res: Response
       return res.redirect(`${frontendUrl}/admin/social?oauth_error=OAuth+state+expired`);
     }
 
-    const reqOrigin = `${req.protocol}://${req.get("host")}`;
+    const reqOrigin = getRequestOrigin(req);
     const redirectUri = buildRedirectUri(reqOrigin, provider.key);
 
     const tokenRes = await exchangeOAuthCode({
@@ -420,7 +429,7 @@ adminSocialRouter.post("/providers/:key/connect", async (req: AdminAuthRequest, 
       },
     });
 
-    const reqOrigin = `${req.protocol}://${req.get("host")}`;
+    const reqOrigin = getRequestOrigin(req);
     const redirectUri = buildRedirectUri(reqOrigin, provider.key);
     const authorizeUrl = buildAuthorizeUrl({
       provider,
