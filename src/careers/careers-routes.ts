@@ -6,6 +6,7 @@ import {
   recordAdminAudit,
   requireAdminSession,
 } from "../security/admin-middleware";
+import { generateResumeUploadSignature } from "../services/media.service";
 
 export const publicJobsRouter = Router();
 export const adminApplicationsRouter = Router();
@@ -47,6 +48,17 @@ publicJobsRouter.get("/", async (_req: Request, res: Response) => {
   }
 });
 
+publicJobsRouter.post("/resume-signature", (req: Request, res: Response) => {
+  try {
+    const fileName = typeof req.body?.fileName === "string" ? req.body.fileName : undefined;
+    const signatureData = generateResumeUploadSignature(fileName);
+    res.json({ data: signatureData });
+  } catch (err) {
+    console.error("Failed to generate resume upload signature:", err);
+    res.status(500).json({ error: { message: "Failed to prepare resume upload." } });
+  }
+});
+
 publicJobsRouter.post("/apply", async (req: Request, res: Response) => {
   try {
     const {
@@ -55,6 +67,8 @@ publicJobsRouter.post("/apply", async (req: Request, res: Response) => {
       name,
       email,
       phone,
+      resumeUrl,
+      resumeFileName,
       resumePublicId,
       portfolioUrl,
       message,
@@ -116,8 +130,12 @@ publicJobsRouter.post("/apply", async (req: Request, res: Response) => {
     const cleanPortfolio =
       typeof portfolioUrl === "string" && portfolioUrl.trim() ? portfolioUrl.trim() : null;
     const cleanResume =
-      typeof resumePublicId === "string" && resumePublicId.trim()
+      typeof resumeUrl === "string" && resumeUrl.trim()
+        ? resumeUrl.trim()
+        : typeof resumePublicId === "string" && resumePublicId.trim()
         ? resumePublicId.trim()
+        : typeof resumeFileName === "string" && resumeFileName.trim()
+        ? resumeFileName.trim()
         : "resume_uploaded";
 
     const application = await prisma.jobApplication.create({
@@ -174,18 +192,43 @@ adminApplicationsRouter.get("/", async (_req: AuthenticatedAdminRequest, res: Re
       orderBy: { createdAt: "desc" },
     });
 
-    const data = applications.map((app) => ({
-      id: app.id,
-      jobId: app.jobId,
-      jobTitle: app.job.title,
-      name: app.name,
-      email: app.email,
-      resumeFileName: app.resumePublicId,
-      portfolioUrl: app.portfolioUrl,
-      message: app.message,
-      status: app.status,
-      createdAt: app.createdAt.toISOString(),
-    }));
+    const data = applications.map((app) => {
+      const isUrl = /^https?:\/\//i.test(app.resumePublicId);
+      let resumeFileName = app.resumePublicId;
+      if (isUrl) {
+        try {
+          const parsed = new URL(app.resumePublicId);
+          resumeFileName = decodeURIComponent(parsed.pathname.split("/").pop() || "resume.pdf");
+        } catch {
+          resumeFileName = "resume.pdf";
+        }
+      }
+
+      let extractedPhone: string | undefined;
+      let cleanMessage = app.message || undefined;
+      if (cleanMessage) {
+        const phoneMatch = cleanMessage.match(/(?:^|\n\n)Phone:\s*(.+)$/i);
+        if (phoneMatch) {
+          extractedPhone = phoneMatch[1]?.trim();
+          cleanMessage = cleanMessage.replace(/(?:^|\n\n)Phone:\s*.+$/i, "").trim() || undefined;
+        }
+      }
+
+      return {
+        id: app.id,
+        jobId: app.jobId,
+        jobTitle: app.job.title,
+        name: app.name,
+        email: app.email,
+        phone: extractedPhone,
+        resumeFileName,
+        resumeUrl: isUrl ? app.resumePublicId : undefined,
+        portfolioUrl: app.portfolioUrl,
+        message: cleanMessage,
+        status: app.status,
+        createdAt: app.createdAt.toISOString(),
+      };
+    });
 
     res.json({ data });
   } catch (err) {

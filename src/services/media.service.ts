@@ -95,6 +95,37 @@ export function generateAvatarUploadSignature(userId: string) {
   };
 }
 
+export function generateResumeUploadSignature(fileName?: string) {
+  const config = cloudinary.config();
+  if (!config.cloud_name || !config.api_key || !config.api_secret) {
+    throw new Error("Cloudinary credentials are not configured on the server.");
+  }
+
+  const timestamp = Math.round(Date.now() / 1000);
+  const rawBase = (fileName || "resume").replace(/\.[^/.]+$/, "");
+  const safeBase = rawBase.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "resume";
+  const folder = "devcore/resumes";
+  const publicId = `${safeBase}_${Date.now()}`;
+
+  const paramsToSign = {
+    folder,
+    public_id: publicId,
+    timestamp,
+  };
+
+  const signature = cloudinary.utils.api_sign_request(paramsToSign, config.api_secret);
+
+  return {
+    signature,
+    timestamp,
+    apiKey: config.api_key,
+    cloudName: config.cloud_name,
+    folder,
+    publicId,
+    uploadUrl: `https://api.cloudinary.com/v1_1/${config.cloud_name}/auto/upload`,
+  };
+}
+
 export async function verifyAndBuildAvatarResult(publicId: string, expectedUserId: string) {
   const expectedPrefix = `${AVATAR_FOLDER}/avatar_${expectedUserId}_`;
   if (!publicId || typeof publicId !== "string" || !publicId.startsWith(expectedPrefix)) {
