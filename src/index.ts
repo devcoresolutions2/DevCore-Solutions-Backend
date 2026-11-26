@@ -16,6 +16,11 @@ import { adminAuditRouter } from "./audit/audit-routes";
 import { adminSettingsRouter, publicSettingsRouter } from "./settings/admin-settings-routes";
 import { adminMediaRouter } from "./media/admin-media-routes";
 import { adminContentRouter } from "./content/admin-content-routes";
+import {
+  adminApplicationsRouter,
+  adminJobsRouter,
+  publicJobsRouter,
+} from "./careers/careers-routes";
 import { BRANDING_LOGOS } from "./services/media.service";
 
 const app = express();
@@ -67,6 +72,11 @@ app.use("/api/admin/settings", adminSettingsRouter);
 app.use("/api/public/settings", publicSettingsRouter);
 app.use("/api/admin/media", adminMediaRouter);
 app.use("/api/admin/content", adminContentRouter);
+
+// Careers & Job Applications Routes
+app.use("/api/public/jobs", publicJobsRouter);
+app.use("/api/admin/applications", adminApplicationsRouter);
+app.use("/api/admin/jobs", adminJobsRouter);
 
 // Public Branding Logos (Cloudinary Powered)
 app.get("/api/public/branding/logos", (_req, res) => {
