@@ -13,8 +13,16 @@ import { recordAuthEvent } from "../account/account-routes";
 
 export const authRouter = Router();
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:5000";
+const APP_URL = (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/+$/, "");
+const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:5000").replace(/\/+$/, "");
+
+const isCrossSiteProd = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
+const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: isCrossSiteProd,
+  sameSite: (isCrossSiteProd ? "none" : "lax") as "none" | "lax",
+  path: "/",
+};
 
 function getAdminWhitelist(): string[] {
   const envEmails = process.env.ADMIN_WHITELIST_EMAILS || "";
@@ -341,12 +349,8 @@ authRouter.post("/signin", async (req: Request, res: Response) => {
     });
 
     // Set HTTP-only Cookie
-    const isProd = process.env.NODE_ENV === "production";
     res.cookie("devcore_session", rawSessionToken, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: "lax",
-      path: "/",
+      ...SESSION_COOKIE_OPTIONS,
       maxAge: sessionDuration,
     });
 
@@ -441,7 +445,7 @@ authRouter.post("/signout", async (req: Request, res: Response) => {
     }).catch(() => {});
   }
 
-  res.clearCookie("devcore_session", { path: "/" });
+  res.clearCookie("devcore_session", SESSION_COOKIE_OPTIONS);
   return res.json({ success: true, message: "Signed out successfully." });
 });
 
@@ -1235,9 +1239,7 @@ authRouter.get("/google", (req: Request, res: Response) => {
 
   if (req.query.mode === "link") {
     res.cookie("devcore_oauth_next", "/account/settings?tab=providers", {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
+      ...SESSION_COOKIE_OPTIONS,
       maxAge: 5 * 60 * 1000,
     });
   }
@@ -1265,9 +1267,7 @@ const handleGoogleCallback = async (req: Request, res: Response) => {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (req.query.mode === "link") {
     res.cookie("devcore_oauth_next", "/account/settings?tab=providers", {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
+      ...SESSION_COOKIE_OPTIONS,
       maxAge: 5 * 60 * 1000,
     });
   }
@@ -1318,7 +1318,7 @@ const handleGoogleCallback = async (req: Request, res: Response) => {
     const cookies = parseCookies(req);
     const oauthNext = cookies["devcore_oauth_next"];
     if (oauthNext) {
-      res.clearCookie("devcore_oauth_next", { path: "/" });
+      res.clearCookie("devcore_oauth_next", SESSION_COOKIE_OPTIONS);
     }
 
     // If initiated in "link" mode from an active session, attach Google to current user
@@ -1423,12 +1423,8 @@ const handleGoogleCallback = async (req: Request, res: Response) => {
       },
     });
 
-    const isProd = process.env.NODE_ENV === "production";
     res.cookie("devcore_session", rawSessionToken, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: "lax",
-      path: "/",
+      ...SESSION_COOKIE_OPTIONS,
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
 
@@ -1463,9 +1459,7 @@ authRouter.get("/github", (req: Request, res: Response) => {
 
   if (req.query.mode === "link") {
     res.cookie("devcore_oauth_next", "/account/settings?tab=providers", {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
+      ...SESSION_COOKIE_OPTIONS,
       maxAge: 5 * 60 * 1000,
     });
   }
@@ -1606,12 +1600,8 @@ const handleGitHubCallback = async (req: Request, res: Response) => {
       },
     });
 
-    const isProd = process.env.NODE_ENV === "production";
     res.cookie("devcore_session", rawSessionToken, {
-      httpOnly: true,
-      secure: isProd,
-      sameSite: "lax",
-      path: "/",
+      ...SESSION_COOKIE_OPTIONS,
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });
 
