@@ -126,6 +126,61 @@ export function generateResumeUploadSignature(fileName?: string) {
   };
 }
 
+export async function downloadResumeFromCloudinaryUrl(fileUrl: string): Promise<{
+  buffer: Buffer;
+  contentType: string;
+  fileName: string;
+}> {
+  const parsed = new URL(fileUrl);
+  // Path format: /<cloud_name>/<resource_type>/upload/(v123/)?<public_id>.<ext>
+  const match = parsed.pathname.match(/^\/[^/]+\/(image|raw|video)\/(upload|authenticated|private)\/(?:v\d+\/)?(.+)$/);
+  if (!match) {
+    throw new Error("Invalid Cloudinary resume URL.");
+  }
+
+  const resourceType = match[1] as "image" | "raw" | "video";
+  const deliveryType = match[2] as "upload" | "authenticated" | "private";
+  const assetPath = decodeURIComponent(match[3] || "");
+  const fileName = assetPath.split("/").pop() || "resume.pdf";
+
+  let publicId = assetPath;
+  let format = "";
+  if (resourceType !== "raw") {
+    const dotIdx = assetPath.lastIndexOf(".");
+    if (dotIdx > 0) {
+      publicId = assetPath.slice(0, dotIdx);
+      format = assetPath.slice(dotIdx + 1);
+    }
+  }
+
+  const signedUrl = cloudinary.utils.private_download_url(publicId, format, {
+    resource_type: resourceType,
+    type: deliveryType,
+  });
+
+  const response = await fetch(signedUrl);
+  if (!response.ok) {
+    throw new Error(`Cloudinary download failed with status ${response.status}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  const fallbackMime =
+    ext === "pdf"
+      ? "application/pdf"
+      : ext === "docx"
+      ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      : ext === "doc"
+      ? "application/msword"
+      : "application/octet-stream";
+
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    contentType: response.headers.get("content-type") || fallbackMime,
+    fileName,
+  };
+}
+
 export async function verifyAndBuildAvatarResult(publicId: string, expectedUserId: string) {
   const expectedPrefix = `${AVATAR_FOLDER}/avatar_${expectedUserId}_`;
   if (!publicId || typeof publicId !== "string" || !publicId.startsWith(expectedPrefix)) {
