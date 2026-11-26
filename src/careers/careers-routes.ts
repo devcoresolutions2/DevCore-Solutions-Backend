@@ -6,7 +6,10 @@ import {
   recordAdminAudit,
   requireAdminSession,
 } from "../security/admin-middleware";
-import { generateResumeUploadSignature } from "../services/media.service";
+import {
+  downloadResumeFromCloudinaryUrl,
+  generateResumeUploadSignature,
+} from "../services/media.service";
 
 export const publicJobsRouter = Router();
 export const adminApplicationsRouter = Router();
@@ -234,6 +237,32 @@ adminApplicationsRouter.get("/", async (_req: AuthenticatedAdminRequest, res: Re
   } catch (err) {
     console.error("Failed to fetch applications:", err);
     res.status(500).json({ error: { message: "Failed to load applications." } });
+  }
+});
+
+adminApplicationsRouter.get("/:id/resume", async (req: AuthenticatedAdminRequest, res: Response) => {
+  try {
+    const id = String(req.params.id || "");
+    const application = await prisma.jobApplication.findUnique({
+      where: { id },
+      select: { resumePublicId: true },
+    });
+
+    if (!application || !/^https?:\/\//i.test(application.resumePublicId)) {
+      return res.status(404).json({ error: { message: "Resume file not found." } });
+    }
+
+    const { buffer, contentType, fileName } = await downloadResumeFromCloudinaryUrl(
+      application.resumePublicId
+    );
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `inline; filename="${fileName.replace(/"/g, "")}"`);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    return res.send(buffer);
+  } catch (err) {
+    console.error("Failed to stream application resume:", err);
+    return res.status(500).json({ error: { message: "Failed to load resume file." } });
   }
 });
 
