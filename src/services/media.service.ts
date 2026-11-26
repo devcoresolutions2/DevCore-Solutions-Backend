@@ -181,6 +181,31 @@ export async function downloadResumeFromCloudinaryUrl(fileUrl: string): Promise<
   };
 }
 
+export async function deleteResumeFromCloudinaryUrl(fileUrl: string): Promise<void> {
+  try {
+    const parsed = new URL(fileUrl);
+    const match = parsed.pathname.match(
+      /^\/[^/]+\/(image|raw|video)\/(upload|authenticated|private)\/(?:v\d+\/)?(.+)$/
+    );
+    if (!match) return;
+
+    const resourceType = match[1] as "image" | "raw" | "video";
+    const assetPath = decodeURIComponent(match[3] || "");
+    let publicId = assetPath;
+    if (resourceType !== "raw") {
+      const dotIdx = assetPath.lastIndexOf(".");
+      if (dotIdx > 0) publicId = assetPath.slice(0, dotIdx);
+    }
+
+    await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType,
+      invalidate: true,
+    });
+  } catch (err) {
+    console.warn("[Careers:DeleteResume] Cloudinary cleanup warning:", err);
+  }
+}
+
 export async function verifyAndBuildAvatarResult(publicId: string, expectedUserId: string) {
   const expectedPrefix = `${AVATAR_FOLDER}/avatar_${expectedUserId}_`;
   if (!publicId || typeof publicId !== "string" || !publicId.startsWith(expectedPrefix)) {
