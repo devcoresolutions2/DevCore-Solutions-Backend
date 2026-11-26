@@ -7,6 +7,7 @@ import {
   requireAdminSession,
 } from "../security/admin-middleware";
 import {
+  deleteResumeFromCloudinaryUrl,
   downloadResumeFromCloudinaryUrl,
   generateResumeUploadSignature,
 } from "../services/media.service";
@@ -293,6 +294,40 @@ adminApplicationsRouter.patch("/:id/status", async (req: AuthenticatedAdminReque
   } catch (err) {
     console.error("Failed to update application status:", err);
     res.status(500).json({ error: { message: "Failed to update application status." } });
+  }
+});
+
+adminApplicationsRouter.delete("/:id", async (req: AuthenticatedAdminRequest, res: Response) => {
+  try {
+    const id = String(req.params.id || "");
+    const existing = await prisma.jobApplication.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, resumePublicId: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: { message: "Application not found." } });
+    }
+
+    if (/^https?:\/\//i.test(existing.resumePublicId)) {
+      await deleteResumeFromCloudinaryUrl(existing.resumePublicId);
+    }
+
+    await prisma.jobApplication.delete({ where: { id } });
+
+    await recordAdminAudit({
+      actorId: req.authUser!.id,
+      action: "APPLICATION_DELETED",
+      entity: "JobApplication",
+      entityId: id,
+      meta: { name: existing.name, email: existing.email },
+      req,
+    });
+
+    return res.json({ data: { deleted: true, id } });
+  } catch (err) {
+    console.error("Failed to delete application:", err);
+    return res.status(500).json({ error: { message: "Failed to delete application." } });
   }
 });
 
