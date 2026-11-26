@@ -21,9 +21,28 @@ import { BRANDING_LOGOS } from "./services/media.service";
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      process.env.NEXT_PUBLIC_APP_URL,
+      "https://dev-core-solutions-frontend.vercel.app",
+      "http://localhost:3000",
+      ...(process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(",") : []),
+    ]
+      .filter((o): o is string => Boolean(o))
+      .map((o) => o.trim().replace(/\/+$/, ""))
+  )
+);
+
 app.use(
   cors({
-    origin: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin.replace(/\/+$/, ""))) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
     credentials: true,
   })
 );
