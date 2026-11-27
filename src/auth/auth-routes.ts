@@ -1440,7 +1440,9 @@ const handleGoogleCallback = async (req: Request, res: Response) => {
 
     const isAdmin = user.role === "SUPER_ADMIN" || user.role === "EDITOR";
     const dest = isAdmin ? "/admin/dashboard" : "/";
-    return res.redirect(`${APP_URL}${dest}`);
+    return res.redirect(
+      `${APP_URL}/api/auth/bridge?token=${encodeURIComponent(rawSessionToken)}&next=${encodeURIComponent(dest)}`
+    );
   } catch (err) {
     console.error("[Google OAuth] Error:", err);
     return res.redirect(`${APP_URL}/auth/signin?error=oauth_exception`);
@@ -1617,7 +1619,9 @@ const handleGitHubCallback = async (req: Request, res: Response) => {
 
     const isAdmin = user.role === "SUPER_ADMIN" || user.role === "EDITOR";
     const dest = isAdmin ? "/admin/dashboard" : "/";
-    return res.redirect(`${APP_URL}${dest}`);
+    return res.redirect(
+      `${APP_URL}/api/auth/bridge?token=${encodeURIComponent(rawSessionToken)}&next=${encodeURIComponent(dest)}`
+    );
   } catch (err) {
     console.error("[GitHub OAuth] Error:", err);
     return res.redirect(`${APP_URL}/auth/signin?error=oauth_exception`);
