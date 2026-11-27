@@ -280,139 +280,376 @@ let teamMembers = [
   },
 ];
 
-// Public About Content
-app.get("/api/public/about", (_req, res) => {
-  res.json({ data: aboutContent });
-});
-
-app.patch("/api/admin/about", (req, res) => {
-  aboutContent = { ...aboutContent, ...req.body };
-  res.json({ data: aboutContent, message: "About content updated successfully" });
-});
-
-// Principles
-app.get("/api/public/about/principles", (req, res) => {
-  let list = [...engineeringPrinciples];
-  if (req.query.publishedOnly === "true") {
-    list = list.filter((p) => p.isPublished);
-  }
-  list.sort((a, b) => a.orderIndex - b.orderIndex);
-  res.json({ data: list });
-});
-
-app.post("/api/admin/about/principles", (req, res) => {
-  const newPrinciple = {
-    id: `principle-${Date.now()}`,
-    orderIndex: engineeringPrinciples.length + 1,
-    number: String(engineeringPrinciples.length + 1).padStart(2, "0"),
-    title: req.body.title || "New Principle",
-    description: req.body.description || "",
-    icon: req.body.icon || "cpu",
-    supportingLabel: req.body.supportingLabel || "Invariant:",
-    supportingText: req.body.supportingText || "",
-    isPublished: req.body.isPublished !== undefined ? req.body.isPublished : true,
-  };
-  engineeringPrinciples.push(newPrinciple);
-  res.status(201).json({ data: newPrinciple, message: "Principle created" });
-});
-
-app.patch("/api/admin/about/principles/:id", (req, res) => {
-  const p = engineeringPrinciples.find((item) => item.id === req.params.id);
-  if (!p) {
-    return res.status(404).json({ error: { message: "Principle not found" } });
-  }
-  Object.assign(p, req.body);
-  res.json({ data: p, message: "Principle updated" });
-});
-
-app.delete("/api/admin/about/principles/:id", (req, res) => {
-  const index = engineeringPrinciples.findIndex((item) => item.id === req.params.id);
-  if (index === -1) {
-    return res.status(404).json({ error: { message: "Principle not found" } });
-  }
-  engineeringPrinciples.splice(index, 1);
-  res.json({ message: "Principle deleted successfully" });
-});
-
-app.post("/api/admin/about/principles/reorder", (req, res) => {
-  const { ids } = req.body;
-  if (Array.isArray(ids)) {
-    ids.forEach((id, idx) => {
-      const p = engineeringPrinciples.find((item) => item.id === id);
-      if (p) p.orderIndex = idx + 1;
+async function ensureAboutDefaults() {
+  let about = await prisma.aboutSettings.findUnique({ where: { id: "singleton" } });
+  if (!about) {
+    about = await prisma.aboutSettings.create({
+      data: {
+        id: "singleton",
+        heroBadge: aboutContent.heroBadge,
+        heroTitle: aboutContent.heroTitle,
+        heroSubtitle: aboutContent.heroSubtitle,
+        foundingTag: aboutContent.foundingTag,
+        visionTitle: aboutContent.visionTitle,
+        visionText: aboutContent.visionText,
+        missionTitle: aboutContent.missionTitle,
+        missionText: aboutContent.missionText,
+        philosophyTitle: aboutContent.philosophyTitle,
+        philosophyText: aboutContent.philosophyText,
+        philosophyStats: aboutContent.philosophyStats,
+        ctaTitle: aboutContent.ctaTitle,
+        ctaSubtitle: aboutContent.ctaSubtitle,
+        ctaPrimaryText: aboutContent.ctaPrimaryText,
+        ctaPrimaryUrl: aboutContent.ctaPrimaryUrl,
+        ctaSecondaryText: aboutContent.ctaSecondaryText,
+        ctaSecondaryUrl: aboutContent.ctaSecondaryUrl,
+        locationEnabled: aboutContent.locationEnabled,
+        locationName: aboutContent.locationName,
+        locationAddress: aboutContent.locationAddress,
+        locationTimezone: aboutContent.locationTimezone,
+        locationStatus: aboutContent.locationStatus,
+      },
     });
-    engineeringPrinciples.sort((a, b) => a.orderIndex - b.orderIndex);
   }
-  res.json({ data: engineeringPrinciples, message: "Principles reordered successfully" });
-});
+  return about;
+}
 
-// Team Members
-app.get("/api/public/about/team", (req, res) => {
-  let list = [...teamMembers];
-  if (req.query.publishedOnly === "true") {
-    list = list.filter((m) => m.isPublished);
-  }
-  list.sort((a, b) => a.displayOrder - b.displayOrder);
-  res.json({ data: list });
-});
-
-app.post("/api/admin/about/team", (req, res) => {
-  const newMember = {
-    id: `team-${Date.now()}`,
-    name: req.body.name || "Team Member",
-    role: req.body.role || "Software Engineer",
-    bio: req.body.bio || "",
-    avatarUrl: req.body.avatarUrl || undefined,
-    initials:
-      req.body.initials ||
-      (req.body.name
-        ? req.body.name
-            .split(" ")
-            .map((n: string) => n[0])
-            .join("")
-            .slice(0, 3)
-            .toUpperCase()
-        : "DC"),
-    badge: req.body.badge || "TEAM",
-    linkedinUrl: req.body.linkedinUrl || "",
-    githubUrl: req.body.githubUrl || "",
-    portfolioUrl: req.body.portfolioUrl || "",
-    isFeatured: !!req.body.isFeatured,
-    isPublished: req.body.isPublished !== undefined ? req.body.isPublished : true,
-    displayOrder: req.body.displayOrder || teamMembers.length + 1,
-  };
-  teamMembers.push(newMember);
-  res.status(201).json({ data: newMember, message: "Team member added" });
-});
-
-app.patch("/api/admin/about/team/:id", (req, res) => {
-  const m = teamMembers.find((item) => item.id === req.params.id);
-  if (!m) {
-    return res.status(404).json({ error: { message: "Team member not found" } });
-  }
-  Object.assign(m, req.body);
-  res.json({ data: m, message: "Team member updated" });
-});
-
-app.delete("/api/admin/about/team/:id", (req, res) => {
-  const index = teamMembers.findIndex((item) => item.id === req.params.id);
-  if (index === -1) {
-    return res.status(404).json({ error: { message: "Team member not found" } });
-  }
-  teamMembers.splice(index, 1);
-  res.json({ message: "Team member deleted successfully" });
-});
-
-app.post("/api/admin/about/team/reorder", (req, res) => {
-  const { ids } = req.body;
-  if (Array.isArray(ids)) {
-    ids.forEach((id, idx) => {
-      const m = teamMembers.find((item) => item.id === id);
-      if (m) m.displayOrder = idx + 1;
+async function ensurePrinciplesSeeded() {
+  const count = await prisma.engineeringPrinciple.count();
+  if (count === 0) {
+    await prisma.engineeringPrinciple.createMany({
+      data: engineeringPrinciples.map((p) => ({
+        orderIndex: p.orderIndex,
+        number: p.number,
+        title: p.title,
+        description: p.description,
+        icon: p.icon,
+        supportingLabel: p.supportingLabel,
+        supportingText: p.supportingText,
+        isPublished: p.isPublished,
+      })),
     });
-    teamMembers.sort((a, b) => a.displayOrder - b.displayOrder);
   }
-  res.json({ data: teamMembers, message: "Team members reordered successfully" });
+}
+
+async function ensureTeamSeeded() {
+  const count = await prisma.teamMember.count();
+  if (count === 0) {
+    await prisma.teamMember.createMany({
+      data: [
+        {
+          name: "Fourkan Bin Ilias",
+          role: "Junior Software Engineer & Full Stack Developer",
+          bio: "Founder & CEO leading end-to-end full-stack architecture, TypeScript & Next.js product systems, PostgreSQL database design, and direct client delivery at DevCore Solutions.",
+          initials: "FI",
+          badge: "FOUNDER & CEO",
+          avatarUrl: "/images/team/fourkan-bin-ilias.jpg",
+          githubUrl: "https://github.com/Pinon1345",
+          linkedinUrl: "https://www.linkedin.com/in/fourkan-bin-ilias/",
+          portfolioUrl: "https://fourkan-bin-ilias-portfolio-dev.vercel.app/",
+          isFeatured: true,
+          isPublished: true,
+          displayOrder: 1,
+        },
+        {
+          name: "Kazi Mehedi Hasan Samin",
+          role: "Junior Software Engineer & Full Stack Developer",
+          bio: "Co-Founder & CEO driving scalable full-stack web platforms, React & Node.js engineering workflows, API infrastructure, and collaborative product execution across DevCore Solutions.",
+          initials: "KM",
+          badge: "CO-FOUNDER & CEO",
+          avatarUrl: "/images/team/kazi-mehedi-hasan-samin.jpg",
+          githubUrl: "https://github.com/kazi-Samin",
+          linkedinUrl: "https://www.linkedin.com/in/kazi-mahedi-hasan",
+          portfolioUrl: "https://kazi-mahedi-hasan-portfolio.vercel.app/",
+          isFeatured: true,
+          isPublished: true,
+          displayOrder: 2,
+        },
+      ],
+    });
+  }
+}
+
+// Public About Content (PostgreSQL Powered)
+app.get("/api/public/about", async (_req, res) => {
+  try {
+    const about = await ensureAboutDefaults();
+    res.json({ data: about });
+  } catch (err) {
+    console.error("Failed to fetch about content:", err);
+    res.status(500).json({ error: { message: "Failed to load about content." } });
+  }
+});
+
+app.patch("/api/admin/about", async (req, res) => {
+  try {
+    await ensureAboutDefaults();
+    const b = req.body ?? {};
+    const updateData: any = {};
+    const allowedFields = [
+      "heroBadge",
+      "heroTitle",
+      "heroSubtitle",
+      "foundingTag",
+      "visionTitle",
+      "visionText",
+      "missionTitle",
+      "missionText",
+      "philosophyTitle",
+      "philosophyText",
+      "philosophyStats",
+      "ctaTitle",
+      "ctaSubtitle",
+      "ctaPrimaryText",
+      "ctaPrimaryUrl",
+      "ctaSecondaryText",
+      "ctaSecondaryUrl",
+      "locationEnabled",
+      "locationName",
+      "locationAddress",
+      "locationTimezone",
+      "locationStatus",
+    ];
+    for (const key of allowedFields) {
+      if (b[key] !== undefined) updateData[key] = b[key];
+    }
+    const updated = await prisma.aboutSettings.update({
+      where: { id: "singleton" },
+      data: updateData,
+    });
+    res.json({ data: updated, message: "About content updated successfully" });
+  } catch (err) {
+    console.error("Failed to update about content:", err);
+    res.status(500).json({ error: { message: "Failed to update about content." } });
+  }
+});
+
+// Principles (PostgreSQL Powered)
+app.get("/api/public/about/principles", async (req, res) => {
+  try {
+    await ensurePrinciplesSeeded();
+    const where: any = {};
+    if (req.query.publishedOnly === "true") {
+      where.isPublished = true;
+    }
+    const list = await prisma.engineeringPrinciple.findMany({
+      where,
+      orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+    });
+    res.json({ data: list });
+  } catch (err) {
+    console.error("Failed to fetch principles:", err);
+    res.status(500).json({ error: { message: "Failed to load principles." } });
+  }
+});
+
+app.post("/api/admin/about/principles", async (req, res) => {
+  try {
+    const count = await prisma.engineeringPrinciple.count();
+    const nextOrder = count + 1;
+    const created = await prisma.engineeringPrinciple.create({
+      data: {
+        orderIndex: nextOrder,
+        number: String(req.body?.number || nextOrder).padStart(2, "0"),
+        title: String(req.body?.title || "New Principle").trim(),
+        description: String(req.body?.description || "").trim(),
+        icon: String(req.body?.icon || "cpu").trim(),
+        supportingLabel: String(req.body?.supportingLabel || "Invariant:").trim(),
+        supportingText: String(req.body?.supportingText || "").trim(),
+        isPublished: req.body?.isPublished !== undefined ? Boolean(req.body.isPublished) : true,
+      },
+    });
+    res.status(201).json({ data: created, message: "Principle created" });
+  } catch (err) {
+    console.error("Failed to create principle:", err);
+    res.status(500).json({ error: { message: "Failed to create principle." } });
+  }
+});
+
+app.patch("/api/admin/about/principles/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "");
+    const existing = await prisma.engineeringPrinciple.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: { message: "Principle not found" } });
+    }
+    const b = req.body ?? {};
+    const data: any = {};
+    for (const key of [
+      "orderIndex",
+      "number",
+      "title",
+      "description",
+      "icon",
+      "supportingLabel",
+      "supportingText",
+      "isPublished",
+    ]) {
+      if (b[key] !== undefined) data[key] = b[key];
+    }
+    const updated = await prisma.engineeringPrinciple.update({ where: { id }, data });
+    res.json({ data: updated, message: "Principle updated" });
+  } catch (err) {
+    console.error("Failed to update principle:", err);
+    res.status(500).json({ error: { message: "Failed to update principle." } });
+  }
+});
+
+app.delete("/api/admin/about/principles/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "");
+    await prisma.engineeringPrinciple.delete({ where: { id } });
+    res.json({ message: "Principle deleted successfully" });
+  } catch (err) {
+    console.error("Failed to delete principle:", err);
+    res.status(404).json({ error: { message: "Principle not found" } });
+  }
+});
+
+app.post("/api/admin/about/principles/reorder", async (req, res) => {
+  try {
+    const { ids } = req.body ?? {};
+    if (Array.isArray(ids)) {
+      await Promise.all(
+        ids.map((id: string, idx: number) =>
+          prisma.engineeringPrinciple.update({
+            where: { id: String(id) },
+            data: { orderIndex: idx + 1, number: String(idx + 1).padStart(2, "0") },
+          })
+        )
+      );
+    }
+    const list = await prisma.engineeringPrinciple.findMany({
+      orderBy: [{ orderIndex: "asc" }, { createdAt: "asc" }],
+    });
+    res.json({ data: list, message: "Principles reordered successfully" });
+  } catch (err) {
+    console.error("Failed to reorder principles:", err);
+    res.status(500).json({ error: { message: "Failed to reorder principles." } });
+  }
+});
+
+// Team Members (PostgreSQL Powered)
+app.get("/api/public/about/team", async (req, res) => {
+  try {
+    await ensureTeamSeeded();
+    const where: any = {};
+    if (req.query.publishedOnly === "true") {
+      where.isPublished = true;
+    }
+    const list = await prisma.teamMember.findMany({
+      where,
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+    });
+    res.json({ data: list });
+  } catch (err) {
+    console.error("Failed to fetch team members:", err);
+    res.status(500).json({ error: { message: "Failed to load team members." } });
+  }
+});
+
+app.post("/api/admin/about/team", async (req, res) => {
+  try {
+    const count = await prisma.teamMember.count();
+    const b = req.body ?? {};
+    const name = String(b.name || "Team Member").trim();
+    const initials =
+      b.initials ||
+      name
+        .split(" ")
+        .map((n: string) => n[0])
+        .join("")
+        .slice(0, 3)
+        .toUpperCase();
+
+    const created = await prisma.teamMember.create({
+      data: {
+        name,
+        role: String(b.role || "Software Engineer").trim(),
+        bio: String(b.bio || "").trim(),
+        avatarUrl: b.avatarUrl ? String(b.avatarUrl).trim() : null,
+        initials,
+        badge: String(b.badge || "TEAM").trim(),
+        linkedinUrl: b.linkedinUrl ? String(b.linkedinUrl).trim() : "",
+        githubUrl: b.githubUrl ? String(b.githubUrl).trim() : "",
+        portfolioUrl: b.portfolioUrl ? String(b.portfolioUrl).trim() : "",
+        isFeatured: Boolean(b.isFeatured),
+        isPublished: b.isPublished !== undefined ? Boolean(b.isPublished) : true,
+        displayOrder: Number.isFinite(Number(b.displayOrder)) ? Number(b.displayOrder) : count + 1,
+      },
+    });
+    res.status(201).json({ data: created, message: "Team member added" });
+  } catch (err) {
+    console.error("Failed to create team member:", err);
+    res.status(500).json({ error: { message: "Failed to add team member." } });
+  }
+});
+
+app.patch("/api/admin/about/team/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "");
+    const existing = await prisma.teamMember.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: { message: "Team member not found" } });
+    }
+    const b = req.body ?? {};
+    const data: any = {};
+    for (const key of [
+      "name",
+      "role",
+      "bio",
+      "avatarUrl",
+      "initials",
+      "badge",
+      "linkedinUrl",
+      "githubUrl",
+      "portfolioUrl",
+      "isFeatured",
+      "isPublished",
+      "displayOrder",
+    ]) {
+      if (b[key] !== undefined) data[key] = b[key];
+    }
+    const updated = await prisma.teamMember.update({ where: { id }, data });
+    res.json({ data: updated, message: "Team member updated" });
+  } catch (err) {
+    console.error("Failed to update team member:", err);
+    res.status(500).json({ error: { message: "Failed to update team member." } });
+  }
+});
+
+app.delete("/api/admin/about/team/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "");
+    await prisma.teamMember.delete({ where: { id } });
+    res.json({ message: "Team member deleted successfully" });
+  } catch (err) {
+    console.error("Failed to delete team member:", err);
+    res.status(404).json({ error: { message: "Team member not found" } });
+  }
+});
+
+app.post("/api/admin/about/team/reorder", async (req, res) => {
+  try {
+    const { ids } = req.body ?? {};
+    if (Array.isArray(ids)) {
+      await Promise.all(
+        ids.map((id: string, idx: number) =>
+          prisma.teamMember.update({
+            where: { id: String(id) },
+            data: { displayOrder: idx + 1 },
+          })
+        )
+      );
+    }
+    const list = await prisma.teamMember.findMany({
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+    });
+    res.json({ data: list, message: "Team members reordered successfully" });
+  } catch (err) {
+    console.error("Failed to reorder team members:", err);
+    res.status(500).json({ error: { message: "Failed to reorder team members." } });
+  }
 });
 
 // ─── BLOG & TECHNICAL CMS ──────────────────────────────────────────────────

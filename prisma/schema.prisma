@@ -469,6 +469,65 @@ model ContactSettings {
   updatedAt              DateTime @updatedAt
 }
 
+model AboutSettings {
+  id               String   @id @default("singleton")
+  heroBadge        String   @default("ARCHITECTURAL DOSSIER")
+  heroTitle        String   @default("Building the Digital Core for a Smarter Tomorrow")
+  heroSubtitle     String
+  foundingTag      String   @default("FOUNDED 2019 • DISTRIBUTED CORE")
+  visionTitle      String   @default("Our Vision")
+  visionText       String
+  missionTitle     String   @default("Our Mission")
+  missionText      String
+  philosophyTitle  String   @default("The Core Philosophy")
+  philosophyText   String
+  philosophyStats  Json
+  ctaTitle         String
+  ctaSubtitle      String
+  ctaPrimaryText   String
+  ctaPrimaryUrl    String
+  ctaSecondaryText String
+  ctaSecondaryUrl  String
+  locationEnabled  Boolean  @default(true)
+  locationName     String
+  locationAddress  String
+  locationTimezone String   @default("Asia/Dhaka")
+  locationStatus   String   @default("ONLINE • UTC+6")
+  updatedAt        DateTime @updatedAt
+}
+
+model EngineeringPrinciple {
+  id              String   @id @default(cuid())
+  orderIndex      Int      @default(1)
+  number          String   @default("01")
+  title           String
+  description     String
+  icon            String   @default("cpu")
+  supportingLabel String   @default("Standard:")
+  supportingText  String   @default("")
+  isPublished     Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model TeamMember {
+  id           String   @id @default(cuid())
+  name         String
+  role         String
+  bio          String   @default("")
+  initials     String   @default("DC")
+  badge        String   @default("ENGINEERING")
+  avatarUrl    String?
+  githubUrl    String?
+  linkedinUrl  String?
+  portfolioUrl String?
+  isFeatured   Boolean  @default(false)
+  isPublished  Boolean  @default(true)
+  displayOrder Int      @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model UserInvitation {
   id          String    @id @default(cuid())
   email       String
