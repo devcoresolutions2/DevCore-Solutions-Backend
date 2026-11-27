@@ -86,9 +86,93 @@ app.get("/api/public/branding/logos", (_req, res) => {
   });
 });
 
+const DEFAULT_CORE_SERVICES = [
+  {
+    slug: "custom-web-saas-engineering",
+    title: "Custom Web & SaaS Engineering",
+    summary:
+      "Multi-tenant distributed web platforms, offline-first client architectures, and fault-tolerant operational cockpits designed to thrive under extreme concurrent loads.",
+    deliverables: [
+      "Next.js/React Enterprise Architecture",
+      "Deterministic SQLite/CRDT Sync",
+      "Automated SOC2 Harness Tests",
+      "Multi-region CDN Edge Caching",
+    ],
+    icon: "Layers",
+    displayOrder: 1,
+  },
+  {
+    slug: "cloud-api-architecture",
+    title: "Cloud & API Architecture",
+    summary:
+      "High-concurrency gRPC/REST APIs, Kubernetes mesh topologies, and zero-downtime event streaming engines built for sub-millisecond execution.",
+    deliverables: [
+      "Asymmetric Multi-Region Mesh",
+      "OpenTofu / Terraform IaC Repos",
+      "Kafka Realtime Ingestion Pipeline",
+      "mTLS Zero-Trust Gateway Rules",
+    ],
+    icon: "Boxes",
+    displayOrder: 2,
+  },
+  {
+    slug: "ai-workflow-automation",
+    title: "AI & Workflow Automation",
+    summary:
+      "Pragmatic enterprise LLM agents, vector semantic indexing, and low-latency autonomous workflow orchestration with mathematical prompt boundaries.",
+    deliverables: [
+      "Deterministic Guardrail Layer",
+      "pgvector & Hybrid Pipeline",
+      "Multi-Agent Worker Queues",
+      "Prompt Drift Observability",
+    ],
+    icon: "Bot",
+    displayOrder: 3,
+  },
+  {
+    slug: "ui-ux-product-design",
+    title: "UI/UX Product Design",
+    summary:
+      "Precision design systems engineered for extreme data density, WCAG AA accessibility compliance, and direct 1:1 engineering design tokens.",
+    deliverables: [
+      "Multi-Tier Figma Token System",
+      "High-Density Telemetry HUDs",
+      "Micro-interaction Motion Spec",
+      "Interactive Storybook Rig",
+    ],
+    icon: "Layout",
+    displayOrder: 4,
+  },
+  {
+    slug: "it-technical-consultation-audits",
+    title: "IT Technical Consultation & Audits",
+    summary:
+      "Comprehensive architectural forensics, legacy modernization roadmaps, performance profiling, and deterministic pre-audit hardening.",
+    deliverables: [
+      "Kernel & DB Query Profiling",
+      "Penetration Hardening Audit",
+      "Monolith Strangler Blueprint",
+      "24/7 Disaster Runbooks",
+    ],
+    icon: "Terminal",
+    displayOrder: 5,
+  },
+];
+
 // Public Services (PostgreSQL Powered)
 app.get("/api/public/services", async (_req, res) => {
   try {
+    const count = await prisma.service.count({ where: { deletedAt: null } });
+    if (count === 0) {
+      await prisma.service.createMany({
+        data: DEFAULT_CORE_SERVICES.map((s) => ({
+          ...s,
+          visible: true,
+          status: "PUBLISHED",
+        })),
+        skipDuplicates: true,
+      });
+    }
     const services = await prisma.service.findMany({
       where: {
         deletedAt: null,
@@ -101,6 +185,281 @@ app.get("/api/public/services", async (_req, res) => {
   } catch (err) {
     console.error("Failed to fetch public services:", err);
     res.status(500).json({ error: { message: "Failed to load services." } });
+  }
+});
+
+const CATEGORY_TO_LABEL: Record<string, string> = {
+  SAAS: "SaaS",
+  ENTERPRISE_WEB: "Enterprise Web",
+  ECOMMERCE: "E-Commerce",
+  AI_AUTOMATION: "AI Automation",
+  MOBILE: "Mobile",
+  OTHER: "Other",
+};
+
+function mapShowcaseRow(s: any) {
+  return {
+    id: s.id,
+    slug: s.slug,
+    name: s.name,
+    tagline: s.tagline,
+    category: CATEGORY_TO_LABEL[s.category] || "SaaS",
+    badge: s.featuredOnHome ? "FLAGSHIP" : s.badge || "NEW",
+    launchedAt: s.launchDate ? new Date(s.launchDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
+    version: "3.1",
+    description: s.fullDescription || s.shortDescription,
+    coverImage: s.coverImageUrl || undefined,
+    techStack: Array.isArray(s.techTags) ? s.techTags : [],
+    liveUrl: s.liveUrl || undefined,
+    caseStudySlug: s.caseStudyId || s.slug,
+    isFeatured: Boolean(s.featuredOnHome),
+    metrics: Array.isArray(s.galleryImages) ? s.galleryImages : undefined,
+  };
+}
+
+function mapProjectRow(p: any) {
+  return {
+    id: p.id,
+    slug: p.slug,
+    name: p.title,
+    tagline: p.summary,
+    category: CATEGORY_TO_LABEL[p.category] || "SaaS",
+    coverImage: p.coverImageUrl || undefined,
+    challenge: p.challenge || p.summary,
+    solution: p.solution || p.summary,
+    features: Array.isArray(p.features) ? p.features : [],
+    impact: Array.isArray(p.metrics) ? p.metrics : [],
+    techStack: Array.isArray(p.techTags) ? p.techTags : [],
+    liveUrl: p.liveUrl || undefined,
+  };
+}
+
+// Public Showcase / Launches (PostgreSQL Powered)
+app.get("/api/public/showcase", async (req, res) => {
+  try {
+    const count = await prisma.showcaseProduct.count({ where: { deletedAt: null } });
+    if (count === 0) {
+      const firstUser = await prisma.user.findFirst({ orderBy: { createdAt: "asc" } });
+      if (firstUser) {
+        await prisma.showcaseProduct.create({
+          data: {
+            slug: "dinedesk",
+            name: "DineDesk",
+            tagline: "Multi-Vendor Restaurant Ordering & Table Reservation SaaS Platform",
+            shortDescription:
+              "Enterprise-grade, full-stack multi-vendor restaurant ordering and table reservation SaaS platform engineered from the ground up by DevCore Solutions.",
+            fullDescription:
+              "Enterprise-grade, full-stack multi-vendor restaurant ordering and table reservation SaaS platform engineered from the ground up by DevCore Solutions. Eliminates 20–35% third-party aggregator commissions by equipping cloud kitchens, franchise venues, and restaurant groups with direct-to-consumer digital storefronts, table reservation engines, and real-time kitchen dispatch workflows.",
+            coverImageUrl: "/images/dinedesk-cover.jpg",
+            coverImageId: "seed-dinedesk-cover",
+            coverImageWidth: 1200,
+            coverImageHeight: 675,
+            coverImageAlt: "DineDesk SaaS Platform",
+            galleryImages: [
+              { label: "Commission Saved", value: "20–35%" },
+              { label: "Dishes Cataloged", value: "400+" },
+              { label: "Floor Capacity", value: "42 Tables" },
+            ],
+            category: "SAAS",
+            techTags: [
+              "React SPA",
+              "Vite",
+              "Tailwind CSS",
+              "Node.js",
+              "Express",
+              "PostgreSQL (Neon Cloud)",
+              "Stripe SDK",
+              "Google Gemini AI",
+            ],
+            liveUrl: "https://dine-desk-one.vercel.app/",
+            caseStudyId: "dinedesk",
+            badge: "NEW",
+            launchDate: new Date("2026-10-15"),
+            featuredOnHome: true,
+            displayOrder: 1,
+            status: "PUBLISHED",
+            publishedAt: new Date(),
+            authorId: firstUser.id,
+          },
+        });
+      }
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 12, 50);
+    const rows = await prisma.showcaseProduct.findMany({
+      where: { deletedAt: null, status: "PUBLISHED" },
+      orderBy: [{ displayOrder: "asc" }, { launchDate: "desc" }],
+    });
+
+    let items = rows.map(mapShowcaseRow);
+    if (req.query.category && typeof req.query.category === "string") {
+      const c = req.query.category.toLowerCase();
+      items = items.filter((i) => i.category.toLowerCase() === c);
+    }
+
+    const total = items.length;
+    res.json({ data: { items: items.slice(0, limit), total } });
+  } catch (err) {
+    console.error("Failed to fetch public showcase:", err);
+    res.status(500).json({ error: { message: "Failed to load launches." } });
+  }
+});
+
+app.get("/api/public/showcase/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    const item = await prisma.showcaseProduct.findFirst({
+      where: { slug, deletedAt: null, status: "PUBLISHED" },
+    });
+    if (!item) return res.status(404).json({ error: { message: "Launch not found" } });
+    res.json({ data: mapShowcaseRow(item) });
+  } catch (err) {
+    console.error("Failed to fetch showcase item:", err);
+    res.status(500).json({ error: { message: "Failed to load launch." } });
+  }
+});
+
+// Public Portfolio Projects (PostgreSQL Powered)
+app.get("/api/public/projects", async (req, res) => {
+  try {
+    const count = await prisma.project.count({ where: { deletedAt: null } });
+    if (count === 0) {
+      await prisma.project.create({
+        data: {
+          slug: "dinedesk",
+          title: "DineDesk",
+          summary: "Enterprise Multi-Vendor Restaurant Ordering & Table Reservation SaaS",
+          category: "SAAS",
+          techTags: [
+            "React SPA",
+            "Vite",
+            "Tailwind CSS",
+            "Node.js",
+            "Express",
+            "TypeScript",
+            "PostgreSQL (Neon Cloud)",
+            "Stripe SDK",
+            "Google Gemini AI",
+          ],
+          coverImageUrl: "/images/dinedesk-cover.jpg",
+          coverImageId: "seed-dinedesk-project",
+          challenge:
+            "Restaurant owners, cloud kitchens, and franchise groups were losing 20% to 35% of every digital order to predatory third-party delivery apps.",
+          solution:
+            "DevCore Solutions engineered DineDesk as a decoupled, full-stack hospitality ecosystem with TanStack Query, Stripe Link, double-layer RBAC, interactive 42-table floor management, and Google Gemini AI.",
+          features: [
+            "Searchable catalog of 400+ dishes with zero-reload TanStack Query caching",
+            "Interactive Table Reservation Engine with 42-table floor management",
+            "4-Stage Live Order Stepper with real-time kitchen operations console",
+            "Dual payment infrastructure with Stripe SDK & Cash on Delivery",
+          ],
+          metrics: [
+            { label: "Aggregator Fee Savings", value: "20–35%" },
+            { label: "Dishes in Catalog", value: "400+" },
+            { label: "Tables Under Management", value: "42" },
+            { label: "Order Stepper Latency", value: "Real-Time" },
+          ],
+          liveUrl: "https://dine-desk-one.vercel.app/",
+          featured: true,
+          displayOrder: 1,
+          status: "PUBLISHED",
+        },
+      });
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 24, 50);
+    const rows = await prisma.project.findMany({
+      where: { deletedAt: null, status: "PUBLISHED" },
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }],
+    });
+
+    let items = rows.map(mapProjectRow);
+    if (req.query.category && typeof req.query.category === "string") {
+      const c = req.query.category.toLowerCase();
+      items = items.filter((p) => p.category.toLowerCase() === c);
+    }
+
+    res.json({ data: { items: items.slice(0, limit), total: items.length } });
+  } catch (err) {
+    console.error("Failed to fetch public projects:", err);
+    res.status(500).json({ error: { message: "Failed to load projects." } });
+  }
+});
+
+app.get("/api/public/projects/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    const item = await prisma.project.findFirst({
+      where: { slug, deletedAt: null, status: "PUBLISHED" },
+    });
+    if (!item) return res.status(404).json({ error: { message: "Project not found" } });
+    res.json({ data: mapProjectRow(item) });
+  } catch (err) {
+    console.error("Failed to fetch project:", err);
+    res.status(500).json({ error: { message: "Failed to load project." } });
+  }
+});
+
+// Public Testimonials (PostgreSQL Powered)
+app.get("/api/public/testimonials", async (_req, res) => {
+  try {
+    const count = await prisma.testimonial.count({ where: { deletedAt: null } });
+    if (count === 0) {
+      await prisma.testimonial.createMany({
+        data: [
+          {
+            authorName: "Marcus Vance",
+            role: "VP of Engineering",
+            company: "Vanguard FinTech",
+            quote:
+              "DevCore re-architected our core ledger pipeline from 400ms latency down to 14ms under peak transactional volume. Pure engineering rigor.",
+            rating: 5,
+            status: "APPROVED",
+            featured: true,
+          },
+          {
+            authorName: "Elena Rostova",
+            role: "CTO",
+            company: "Aether Cloud Systems",
+            quote:
+              "Zero agency fluff. Their architects integrated seamlessly with our kernel team and delivered a fault-tolerant distributed state layer ahead of schedule.",
+            rating: 5,
+            status: "APPROVED",
+            featured: true,
+          },
+          {
+            authorName: "David Chen",
+            role: "Founder & CEO",
+            company: "Kinetix AI",
+            quote:
+              "They transformed our brittle prototype into an enterprise-ready AI workflow orchestrator capable of handling 10M+ daily deterministic requests.",
+            rating: 5,
+            status: "APPROVED",
+            featured: true,
+          },
+        ],
+      });
+    }
+
+    const rows = await prisma.testimonial.findMany({
+      where: { deletedAt: null, status: "APPROVED" },
+      orderBy: [{ featured: "desc" }, { createdAt: "desc" }],
+    });
+
+    res.json({
+      data: rows.map((t) => ({
+        id: t.id,
+        quote: t.quote,
+        author: t.authorName,
+        role: t.role || "Engineering Leader",
+        company: t.company || "",
+        avatarUrl: t.avatarUrl || undefined,
+        rating: t.rating || 5,
+      })),
+    });
+  } catch (err) {
+    console.error("Failed to fetch public testimonials:", err);
+    res.status(500).json({ error: { message: "Failed to load testimonials." } });
   }
 });
 
