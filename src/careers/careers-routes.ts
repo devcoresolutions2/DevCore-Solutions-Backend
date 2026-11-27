@@ -331,6 +331,94 @@ adminApplicationsRouter.delete("/:id", async (req: AuthenticatedAdminRequest, re
   }
 });
 
+// ─── CREATE JOB ──────────────────────────────────────────────────────────────
+adminJobsRouter.post("/", async (req: AuthenticatedAdminRequest, res: Response) => {
+  try {
+    const {
+      title,
+      department,
+      location,
+      type,
+      workplaceType,
+      description,
+      skills,
+      responsibilities,
+      requirements,
+      salary,
+    } = req.body ?? {};
+
+    if (!title || !description) {
+      return res.status(400).json({
+        error: { message: "Title and description are required." },
+      });
+    }
+
+    const slug = slugifyDiscipline(title) + "-" + Date.now().toString(36);
+
+    const job = await prisma.job.create({
+      data: {
+        slug,
+        title: String(title).trim(),
+        department: String(department || "Engineering").trim(),
+        location: String(location || "Remote").trim(),
+        type: String(type || "Full-time").trim(),
+        workplaceType: String(workplaceType || "Remote").trim(),
+        description: String(description).trim(),
+        skills: Array.isArray(skills) ? skills.filter(Boolean) : [],
+        responsibilities: Array.isArray(responsibilities) ? responsibilities.filter(Boolean) : [],
+        requirements: Array.isArray(requirements) ? requirements.filter(Boolean) : [],
+        salary: salary ? String(salary).trim() : null,
+        status: "OPEN",
+      },
+    });
+
+    await recordAdminAudit({
+      actorId: req.authUser!.id,
+      action: "JOB_CREATED",
+      entity: "Job",
+      entityId: job.id,
+      meta: { title: job.title, department: job.department },
+      req,
+    });
+
+    res.status(201).json({ data: job });
+  } catch (err) {
+    console.error("Failed to create job:", err);
+    res.status(500).json({ error: { message: "Failed to create job position." } });
+  }
+});
+
+// ─── DELETE JOB (SOFT DELETE) ────────────────────────────────────────────────
+adminJobsRouter.delete("/:id", async (req: AuthenticatedAdminRequest, res: Response) => {
+  try {
+    const id = String(req.params.id || "");
+
+    const existing = await prisma.job.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: { message: "Job not found." } });
+    }
+
+    await prisma.job.update({
+      where: { id },
+      data: { deletedAt: new Date(), status: "CLOSED" },
+    });
+
+    await recordAdminAudit({
+      actorId: req.authUser!.id,
+      action: "JOB_DELETED",
+      entity: "Job",
+      entityId: id,
+      meta: { title: existing.title },
+      req,
+    });
+
+    res.json({ data: { deleted: true, id } });
+  } catch (err) {
+    console.error("Failed to delete job:", err);
+    res.status(500).json({ error: { message: "Failed to delete job." } });
+  }
+});
+
 adminJobsRouter.patch("/:id/status", async (req: AuthenticatedAdminRequest, res: Response) => {
   try {
     const id = String(req.params.id || "");
