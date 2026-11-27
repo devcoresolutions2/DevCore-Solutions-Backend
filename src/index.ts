@@ -86,9 +86,93 @@ app.get("/api/public/branding/logos", (_req, res) => {
   });
 });
 
+const DEFAULT_CORE_SERVICES = [
+  {
+    slug: "custom-web-saas-engineering",
+    title: "Custom Web & SaaS Engineering",
+    summary:
+      "Multi-tenant distributed web platforms, offline-first client architectures, and fault-tolerant operational cockpits designed to thrive under extreme concurrent loads.",
+    deliverables: [
+      "Next.js/React Enterprise Architecture",
+      "Deterministic SQLite/CRDT Sync",
+      "Automated SOC2 Harness Tests",
+      "Multi-region CDN Edge Caching",
+    ],
+    icon: "Layers",
+    displayOrder: 1,
+  },
+  {
+    slug: "cloud-api-architecture",
+    title: "Cloud & API Architecture",
+    summary:
+      "High-concurrency gRPC/REST APIs, Kubernetes mesh topologies, and zero-downtime event streaming engines built for sub-millisecond execution.",
+    deliverables: [
+      "Asymmetric Multi-Region Mesh",
+      "OpenTofu / Terraform IaC Repos",
+      "Kafka Realtime Ingestion Pipeline",
+      "mTLS Zero-Trust Gateway Rules",
+    ],
+    icon: "Boxes",
+    displayOrder: 2,
+  },
+  {
+    slug: "ai-workflow-automation",
+    title: "AI & Workflow Automation",
+    summary:
+      "Pragmatic enterprise LLM agents, vector semantic indexing, and low-latency autonomous workflow orchestration with mathematical prompt boundaries.",
+    deliverables: [
+      "Deterministic Guardrail Layer",
+      "pgvector & Hybrid Pipeline",
+      "Multi-Agent Worker Queues",
+      "Prompt Drift Observability",
+    ],
+    icon: "Bot",
+    displayOrder: 3,
+  },
+  {
+    slug: "ui-ux-product-design",
+    title: "UI/UX Product Design",
+    summary:
+      "Precision design systems engineered for extreme data density, WCAG AA accessibility compliance, and direct 1:1 engineering design tokens.",
+    deliverables: [
+      "Multi-Tier Figma Token System",
+      "High-Density Telemetry HUDs",
+      "Micro-interaction Motion Spec",
+      "Interactive Storybook Rig",
+    ],
+    icon: "Layout",
+    displayOrder: 4,
+  },
+  {
+    slug: "it-technical-consultation-audits",
+    title: "IT Technical Consultation & Audits",
+    summary:
+      "Comprehensive architectural forensics, legacy modernization roadmaps, performance profiling, and deterministic pre-audit hardening.",
+    deliverables: [
+      "Kernel & DB Query Profiling",
+      "Penetration Hardening Audit",
+      "Monolith Strangler Blueprint",
+      "24/7 Disaster Runbooks",
+    ],
+    icon: "Terminal",
+    displayOrder: 5,
+  },
+];
+
 // Public Services (PostgreSQL Powered)
 app.get("/api/public/services", async (_req, res) => {
   try {
+    const count = await prisma.service.count({ where: { deletedAt: null } });
+    if (count === 0) {
+      await prisma.service.createMany({
+        data: DEFAULT_CORE_SERVICES.map((s) => ({
+          ...s,
+          visible: true,
+          status: "PUBLISHED",
+        })),
+        skipDuplicates: true,
+      });
+    }
     const services = await prisma.service.findMany({
       where: {
         deletedAt: null,
