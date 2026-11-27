@@ -1421,6 +1421,78 @@ function mapBlogPostToArticle(p: any) {
 // Articles (PostgreSQL Powered via prisma.blogPost)
 app.get("/api/public/blog", async (req, res) => {
   try {
+    const count = await prisma.blogPost.count({ where: { deletedAt: null } });
+    if (count === 0) {
+      const firstUser = await prisma.user.findFirst({ orderBy: { createdAt: "asc" } });
+      if (firstUser) {
+        await prisma.blogPost.createMany({
+          data: [
+            {
+              slug: "deterministic-state-replication-sqlite-wal",
+              title: "Deterministic State Replication via SQLite WAL & Raft Consensus",
+              subtitle: "Eliminating distributed lock contention in multi-region edge topologies.",
+              excerpt:
+                "How we engineered sub-14ms distributed read/write consistency across edge POPs using deterministic Write-Ahead Log streaming and zero-copy Raft state machines.",
+              body: `## Architectural Context\n\nModern distributed applications often suffer from tail-latency spikes when synchronizing state across geographically dispersed regions. Traditional active-active SQL topologies introduce heavy lock-coordination overhead.\n\n### Deterministic WAL Streaming\n\nBy treating the SQLite Write-Ahead Log (WAL) as an immutable append-only event stream, we decouple local read performance from cross-region consensus:\n\n1. **Local Read Isolation**: Edge nodes serve reads directly from local NVMe-backed SQLite snapshots with zero network hops.\n2. **Raft-Ordered Mutations**: Write transactions are serialized through a lightweight Raft quorum and broadcast as deterministic WAL frame deltas.\n3. **Mathematically Bounded Convergence**: Every replica applies identical frame sequences, guaranteeing zero state drift across network partitions.`,
+              category: "Distributed Systems",
+              categorySlug: "distributed-systems",
+              tags: ["SQLite", "Raft", "Distributed State", "Systems"],
+              readingMinutes: 8,
+              status: "PUBLISHED",
+              isFeatured: true,
+              rfcCode: "RFC-042",
+              publishedAt: new Date("2026-10-12"),
+              authorId: firstUser.id,
+              authorName: "Fourkan Bin Ilias",
+              authorRole: "Founder & CEO • Systems Architect",
+              authorInitials: "FI",
+            },
+            {
+              slug: "zero-copy-ebpf-telemetry-linux-kernel",
+              title: "Zero-Copy Kernel Telemetry with Linux eBPF & Ring Buffers",
+              subtitle: "Observing 10M+ packets/sec without userspace context-switch penalties.",
+              excerpt:
+                "A deep dive into building ultra-low-overhead production observability agents using eBPF kprobes, BPF_MAP_TYPE_RINGBUF, and lock-free Rust consumers.",
+              body: `## Beyond Sidecar Proxies\n\nService meshes and sidecar proxies often consume 15–25% of cluster CPU just serializing telemetry. Moving instrumentation directly into the Linux kernel via eBPF removes userspace copy overhead.\n\n### Ring Buffer Architecture\n\nUsing \`BPF_MAP_TYPE_RINGBUF\`, kernel probes write fixed-size telemetry frames directly into shared memory pages mapped by a lock-free Rust collector, keeping p99 syscall latency under 800 nanoseconds.`,
+              category: "Cloud & Kernel",
+              categorySlug: "cloud-kernel",
+              tags: ["eBPF", "Linux", "Rust", "Observability"],
+              readingMinutes: 6,
+              status: "PUBLISHED",
+              isFeatured: false,
+              rfcCode: "RFC-039",
+              publishedAt: new Date("2026-09-28"),
+              authorId: firstUser.id,
+              authorName: "Kazi Mehedi Hasan Samin",
+              authorRole: "Co-Founder & CEO • Full-Stack Architect",
+              authorInitials: "KM",
+            },
+            {
+              slug: "bounded-latency-ai-agent-pipelines",
+              title: "Deterministic Guardrails for Production AI Workflow Orchestration",
+              subtitle: "Enforcing schema contracts, token budgets, and fallback SLAs on LLM pipelines.",
+              excerpt:
+                "How DevCore structures multi-step AI automation with strict Zod/JSON-schema verification, idempotent retries, and deterministic latency bounds.",
+              body: `## Making Probabilistic Models Reliable\n\nEnterprise workflows cannot tolerate unvalidated LLM outputs or unbounded retry loops. Every AI step in DevCore pipelines is wrapped in a deterministic contract:\n\n- **Strict Output Schemas**: Responses are validated against typed contracts before mutating downstream state.\n- **Bounded Retries & Circuit Breakers**: Token budgets and p95 latency caps trigger deterministic fallbacks automatically.`,
+              category: "Applied AI",
+              categorySlug: "applied-ai",
+              tags: ["AI", "LLM", "TypeScript", "Reliability"],
+              readingMinutes: 5,
+              status: "PUBLISHED",
+              isFeatured: false,
+              rfcCode: "RFC-045",
+              publishedAt: new Date("2026-10-04"),
+              authorId: firstUser.id,
+              authorName: "Kazi Mehedi Hasan Samin",
+              authorRole: "Co-Founder & CEO • Full-Stack Architect",
+              authorInitials: "KM",
+            },
+          ],
+          skipDuplicates: true,
+        });
+      }
+    }
+
     const { category, tag, search, sort, status } = req.query;
 
     const where: any = { deletedAt: null };
