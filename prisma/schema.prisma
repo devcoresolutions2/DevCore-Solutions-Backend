@@ -282,19 +282,28 @@ model BlogPost {
   id             String        @id @default(cuid())
   slug           String        @unique
   title          String
+  subtitle       String?
   excerpt        String
   body           String
   coverImageUrl  String?
+  category       String        @default("Engineering")
+  categorySlug   String        @default("engineering")
   tags           String[]
   seoTitle       String?
   seoDescription String?
   readingMinutes Int           @default(1)
   status         ContentStatus @default(DRAFT)
+  isFeatured     Boolean       @default(false)
+  rfcCode        String?
+  readCount      Int           @default(0)
   scheduledFor   DateTime?
   publishedAt    DateTime?
   deletedAt      DateTime?
   authorId       String
   author         User          @relation(fields: [authorId], references: [id])
+  authorName     String        @default("DevCore Engineering")
+  authorRole     String        @default("Systems Architect")
+  authorInitials String        @default("DE")
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 

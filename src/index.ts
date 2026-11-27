@@ -86,6 +86,24 @@ app.get("/api/public/branding/logos", (_req, res) => {
   });
 });
 
+// Public Services (PostgreSQL Powered)
+app.get("/api/public/services", async (_req, res) => {
+  try {
+    const services = await prisma.service.findMany({
+      where: {
+        deletedAt: null,
+        visible: true,
+        status: "PUBLISHED",
+      },
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }],
+    });
+    res.json({ data: services });
+  } catch (err) {
+    console.error("Failed to fetch public services:", err);
+    res.status(500).json({ error: { message: "Failed to load services." } });
+  }
+});
+
 // Welcome route for http://localhost:5000
 
 app.get("/", (_req, res) => {
@@ -769,95 +787,322 @@ app.delete("/api/admin/blog/authors/:id", (req, res) => {
   res.json({ message: "Author deleted" });
 });
 
-// Articles
-app.get("/api/public/blog", (req, res) => {
-  let list = [...blogArticles];
-  const { category, tag, search, sort, status } = req.query;
-
-  if (status === "DRAFT") {
-    list = list.filter((a) => a.status === "DRAFT");
-  } else if (status !== "ALL") {
-    list = list.filter((a) => a.status === "PUBLISHED");
-  }
-
-  if (category && typeof category === "string" && category !== "all") {
-    const c = category.toLowerCase();
-    list = list.filter((a) => a.category.toLowerCase() === c || a.categorySlug?.toLowerCase() === c);
-  }
-
-  if (tag && typeof tag === "string") {
-    const t = tag.toLowerCase();
-    list = list.filter((a) => a.tags.some((item) => item.toLowerCase() === t));
-  }
-
-  if (search && typeof search === "string" && search.trim()) {
-    const q = search.toLowerCase().trim();
-    list = list.filter(
-      (a) =>
-        a.title.toLowerCase().includes(q) ||
-        a.excerpt.toLowerCase().includes(q) ||
-        a.content.toLowerCase().includes(q) ||
-        (a.author?.name ? a.author.name.toLowerCase().includes(q) : false)
-    );
-  }
-
-  if (sort === "oldest") {
-    list.sort((a, b) => new Date(a.publishedAt || a.createdAt).getTime() - new Date(b.publishedAt || b.createdAt).getTime());
-  } else if (sort === "readingTime") {
-    list.sort((a, b) => a.readingMinutes - b.readingMinutes);
-  } else {
-    list.sort((a, b) => new Date(b.publishedAt || b.createdAt).getTime() - new Date(a.publishedAt || a.createdAt).getTime());
-  }
-
-  res.json({ data: list });
-});
-
-app.get("/api/public/blog/:slug", (req, res) => {
-  const article = blogArticles.find((a) => a.slug === req.params.slug);
-  if (!article) return res.status(404).json({ error: { message: "Article not found" } });
-  // Increment view
-  article.readCount = (article.readCount || 0) + 1;
-  res.json({ data: article });
-});
-
-app.post("/api/admin/blog/articles", (req, res) => {
-  const now = new Date().toISOString();
-  const newArticle = {
-    ...req.body,
-    id: `post-${Date.now()}`,
-    createdAt: now,
-    updatedAt: now,
-    publishedAt: req.body.status === "PUBLISHED" ? now : undefined,
-    readCount: 0,
+// Helper: map Prisma BlogPost row to frontend BlogArticleItem shape
+function mapBlogPostToArticle(p: any) {
+  const readingMinutes = p.readingMinutes || 5;
+  return {
+    id: p.id,
+    slug: p.slug,
+    title: p.title,
+    subtitle: p.subtitle || undefined,
+    excerpt: p.excerpt,
+    content: p.body,
+    coverImageUrl: p.coverImageUrl || undefined,
+    category: p.category || "Engineering",
+    categorySlug:
+      p.categorySlug ||
+      String(p.category || "engineering")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-"),
+    authorId: p.authorId,
+    authorName: p.authorName || p.author?.name || "DevCore Engineering",
+    authorRole: p.authorRole || "Systems Architect",
+    authorInitials: p.authorInitials || "DE",
+    readingMinutes,
+    readTime: `${readingMinutes} min read`,
+    status: p.status,
+    isFeatured: Boolean(p.isFeatured),
+    publishedAt: (p.publishedAt || p.createdAt).toISOString(),
+    updatedAt: p.updatedAt.toISOString(),
+    tags: Array.isArray(p.tags) ? p.tags : [],
+    rfcCode: p.rfcCode || undefined,
+    seoTitle: p.seoTitle || undefined,
+    seoDescription: p.seoDescription || undefined,
+    readCount: p.readCount || 0,
   };
-  blogArticles.unshift(newArticle);
-  res.status(201).json({ data: newArticle, message: "Article created successfully" });
+}
+
+// Articles (PostgreSQL Powered via prisma.blogPost)
+app.get("/api/public/blog", async (req, res) => {
+  try {
+    const { category, tag, search, sort, status } = req.query;
+
+    const where: any = { deletedAt: null };
+    if (status === "DRAFT") {
+      where.status = "DRAFT";
+    } else if (status === "SCHEDULED") {
+      where.status = "SCHEDULED";
+    } else if (status !== "ALL") {
+      where.status = "PUBLISHED";
+    }
+
+    const orderBy: any =
+      sort === "oldest"
+        ? [{ publishedAt: "asc" }, { createdAt: "asc" }]
+        : sort === "readingTime"
+          ? [{ readingMinutes: "asc" }]
+          : [{ publishedAt: "desc" }, { createdAt: "desc" }];
+
+    const rows = await prisma.blogPost.findMany({
+      where,
+      include: { author: { select: { name: true } } },
+      orderBy,
+    });
+
+    let list = rows.map(mapBlogPostToArticle);
+
+    if (category && typeof category === "string" && category !== "all") {
+      const c = category.toLowerCase();
+      list = list.filter(
+        (a) =>
+          a.category.toLowerCase() === c ||
+          a.categorySlug.toLowerCase() === c
+      );
+    }
+
+    if (tag && typeof tag === "string") {
+      const t = tag.toLowerCase();
+      list = list.filter((a) => a.tags.some((item: string) => item.toLowerCase() === t));
+    }
+
+    if (search && typeof search === "string" && search.trim()) {
+      const q = search.toLowerCase().trim();
+      list = list.filter(
+        (a) =>
+          a.title.toLowerCase().includes(q) ||
+          a.excerpt.toLowerCase().includes(q) ||
+          a.content.toLowerCase().includes(q) ||
+          a.authorName.toLowerCase().includes(q)
+      );
+    }
+
+    res.json({ data: list });
+  } catch (err) {
+    console.error("Failed to fetch blog articles:", err);
+    res.status(500).json({ error: { message: "Failed to load blog articles." } });
+  }
 });
 
-app.put("/api/admin/blog/articles/:id", (req, res) => {
-  const idx = blogArticles.findIndex((a) => a.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: { message: "Article not found" } });
-  const existing = blogArticles[idx]!;
-  const updated = {
-    ...existing,
-    ...req.body,
-    updatedAt: new Date().toISOString(),
-    publishedAt:
-      req.body.status === "PUBLISHED" && !existing.publishedAt
-        ? new Date().toISOString()
-        : req.body.status === "DRAFT"
-        ? undefined
-        : req.body.publishedAt || existing.publishedAt,
-  };
-  blogArticles[idx] = updated;
-  res.json({ data: updated, message: "Article updated successfully" });
+app.get("/api/public/blog/:slug", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "");
+    const post = await prisma.blogPost.findFirst({
+      where: { slug, deletedAt: null },
+      include: { author: { select: { name: true } } },
+    });
+    if (!post) {
+      return res.status(404).json({ error: { message: "Article not found" } });
+    }
+    const updated = await prisma.blogPost.update({
+      where: { id: post.id },
+      data: { readCount: { increment: 1 } },
+      include: { author: { select: { name: true } } },
+    });
+    res.json({ data: mapBlogPostToArticle(updated) });
+  } catch (err) {
+    console.error("Failed to fetch blog article:", err);
+    res.status(500).json({ error: { message: "Failed to load article." } });
+  }
 });
 
-app.delete("/api/admin/blog/articles/:id", (req, res) => {
-  const idx = blogArticles.findIndex((a) => a.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: { message: "Article not found" } });
-  blogArticles.splice(idx, 1);
-  res.json({ message: "Article deleted successfully" });
+app.post("/api/admin/blog/articles", async (req, res) => {
+  try {
+    const {
+      slug,
+      title,
+      subtitle,
+      excerpt,
+      content,
+      body,
+      coverImageUrl,
+      category,
+      categorySlug,
+      authorId,
+      authorName,
+      authorRole,
+      authorInitials,
+      readingMinutes,
+      status,
+      isFeatured,
+      publishedAt,
+      tags,
+      rfcCode,
+      seoTitle,
+      seoDescription,
+    } = req.body ?? {};
+
+    if (!title || !(content || body)) {
+      return res.status(400).json({
+        error: { message: "Article title and content are required." },
+      });
+    }
+
+    // Resolve a valid User.id for the Prisma BlogPost.author relation
+    let resolvedAuthorId: string | undefined;
+    if (typeof authorId === "string" && authorId.trim()) {
+      const userMatch = await prisma.user.findUnique({ where: { id: authorId.trim() } });
+      if (userMatch) resolvedAuthorId = userMatch.id;
+    }
+    if (!resolvedAuthorId) {
+      const fallbackUser = await prisma.user.findFirst({
+        orderBy: { createdAt: "asc" },
+      });
+      if (!fallbackUser) {
+        return res.status(400).json({
+          error: { message: "No user account exists in database to associate as author." },
+        });
+      }
+      resolvedAuthorId = fallbackUser.id;
+    }
+
+    const baseSlug = String(slug || title)
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    const existingSlug = baseSlug
+      ? await prisma.blogPost.findUnique({ where: { slug: baseSlug } })
+      : null;
+    const finalSlug = existingSlug
+      ? `${baseSlug}-${Date.now().toString(36)}`
+      : baseSlug || `post-${Date.now().toString(36)}`;
+
+    const normalizedStatus =
+      status === "PUBLISHED" || status === "SCHEDULED" ? status : "DRAFT";
+
+    const created = await prisma.blogPost.create({
+      data: {
+        slug: finalSlug,
+        title: String(title).trim(),
+        subtitle: subtitle ? String(subtitle).trim() : null,
+        excerpt: String(excerpt || "").trim(),
+        body: String(content || body),
+        coverImageUrl: coverImageUrl ? String(coverImageUrl).trim() : null,
+        category: String(category || "Engineering").trim(),
+        categorySlug:
+          categorySlug ||
+          String(category || "engineering")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-"),
+        tags: Array.isArray(tags) ? tags.map((t: unknown) => String(t).trim()).filter(Boolean) : [],
+        seoTitle: seoTitle ? String(seoTitle).trim() : null,
+        seoDescription: seoDescription ? String(seoDescription).trim() : null,
+        readingMinutes: Number.isFinite(Number(readingMinutes)) ? Number(readingMinutes) : 5,
+        status: normalizedStatus,
+        isFeatured: Boolean(isFeatured),
+        rfcCode: rfcCode ? String(rfcCode).trim() : null,
+        publishedAt:
+          normalizedStatus === "PUBLISHED"
+            ? publishedAt
+              ? new Date(publishedAt)
+              : new Date()
+            : null,
+        authorId: resolvedAuthorId,
+        authorName: String(authorName || "DevCore Engineering").trim(),
+        authorRole: String(authorRole || "Systems Architect").trim(),
+        authorInitials: String(authorInitials || "DE").trim(),
+      },
+      include: { author: { select: { name: true } } },
+    });
+
+    res.status(201).json({
+      data: mapBlogPostToArticle(created),
+      message: "Article created successfully",
+    });
+  } catch (err) {
+    console.error("Failed to create blog article:", err);
+    res.status(500).json({ error: { message: "Failed to create article." } });
+  }
+});
+
+app.put("/api/admin/blog/articles/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "");
+    const existing = await prisma.blogPost.findUnique({ where: { id } });
+    if (!existing || existing.deletedAt) {
+      return res.status(404).json({ error: { message: "Article not found" } });
+    }
+
+    const b = req.body ?? {};
+    const nextStatus =
+      b.status === "PUBLISHED" || b.status === "DRAFT" || b.status === "SCHEDULED"
+        ? b.status
+        : existing.status;
+
+    const data: any = {
+      status: nextStatus,
+    };
+    if (b.title !== undefined) data.title = String(b.title).trim();
+    if (b.slug !== undefined) data.slug = String(b.slug).trim();
+    if (b.subtitle !== undefined) data.subtitle = b.subtitle ? String(b.subtitle).trim() : null;
+    if (b.excerpt !== undefined) data.excerpt = String(b.excerpt).trim();
+    if (b.content !== undefined || b.body !== undefined) {
+      data.body = String(b.content ?? b.body);
+    }
+    if (b.coverImageUrl !== undefined) {
+      data.coverImageUrl = b.coverImageUrl ? String(b.coverImageUrl).trim() : null;
+    }
+    if (b.category !== undefined) {
+      data.category = String(b.category).trim();
+      data.categorySlug =
+        b.categorySlug ||
+        String(b.category)
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-");
+    }
+    if (b.authorName !== undefined) data.authorName = String(b.authorName).trim();
+    if (b.authorRole !== undefined) data.authorRole = String(b.authorRole).trim();
+    if (b.authorInitials !== undefined) data.authorInitials = String(b.authorInitials).trim();
+    if (b.readingMinutes !== undefined) data.readingMinutes = Number(b.readingMinutes) || 5;
+    if (b.isFeatured !== undefined) data.isFeatured = Boolean(b.isFeatured);
+    if (b.tags !== undefined && Array.isArray(b.tags)) {
+      data.tags = b.tags.map((t: unknown) => String(t).trim()).filter(Boolean);
+    }
+    if (b.rfcCode !== undefined) data.rfcCode = b.rfcCode ? String(b.rfcCode).trim() : null;
+    if (b.seoTitle !== undefined) data.seoTitle = b.seoTitle ? String(b.seoTitle).trim() : null;
+    if (b.seoDescription !== undefined) {
+      data.seoDescription = b.seoDescription ? String(b.seoDescription).trim() : null;
+    }
+    if (nextStatus === "PUBLISHED" && !existing.publishedAt) {
+      data.publishedAt = new Date();
+    } else if (nextStatus === "DRAFT") {
+      data.publishedAt = null;
+    }
+
+    const updated = await prisma.blogPost.update({
+      where: { id },
+      data,
+      include: { author: { select: { name: true } } },
+    });
+
+    res.json({
+      data: mapBlogPostToArticle(updated),
+      message: "Article updated successfully",
+    });
+  } catch (err) {
+    console.error("Failed to update blog article:", err);
+    res.status(500).json({ error: { message: "Failed to update article." } });
+  }
+});
+
+app.delete("/api/admin/blog/articles/:id", async (req, res) => {
+  try {
+    const id = String(req.params.id || "");
+    const existing = await prisma.blogPost.findUnique({ where: { id } });
+    if (!existing) {
+      return res.status(404).json({ error: { message: "Article not found" } });
+    }
+    await prisma.blogPost.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    res.json({ message: "Article deleted successfully" });
+  } catch (err) {
+    console.error("Failed to delete blog article:", err);
+    res.status(500).json({ error: { message: "Failed to delete article." } });
+  }
 });
 
 // Newsletter
@@ -925,17 +1170,32 @@ app.delete("/api/admin/newsletter/subscribers/:id", (req, res) => {
   res.json({ message: "Subscriber deleted successfully" });
 });
 
-app.get("/api/admin/blog/stats", (_req, res) => {
-  res.json({
-    data: {
-      totalArticles: blogArticles.length,
-      publishedArticles: blogArticles.filter((a) => a.status === "PUBLISHED").length,
-      draftArticles: blogArticles.filter((a) => a.status === "DRAFT").length,
-      totalCategories: blogCategories.length,
-      totalSubscribers: newsletterSubscribers.filter((s) => s.status === "ACTIVE").length,
-      totalReads: blogArticles.reduce((sum, a) => sum + (a.readCount || 0), 0),
-    },
-  });
+app.get("/api/admin/blog/stats", async (_req, res) => {
+  try {
+    const [totalArticles, publishedArticles, draftArticles, readsAgg] = await Promise.all([
+      prisma.blogPost.count({ where: { deletedAt: null } }),
+      prisma.blogPost.count({ where: { deletedAt: null, status: "PUBLISHED" } }),
+      prisma.blogPost.count({ where: { deletedAt: null, status: "DRAFT" } }),
+      prisma.blogPost.aggregate({
+        where: { deletedAt: null },
+        _sum: { readCount: true },
+      }),
+    ]);
+
+    res.json({
+      data: {
+        totalArticles,
+        publishedArticles,
+        draftArticles,
+        totalCategories: blogCategories.length,
+        totalSubscribers: newsletterSubscribers.filter((s) => s.status === "ACTIVE").length,
+        totalReads: readsAgg._sum.readCount || 0,
+      },
+    });
+  } catch (err) {
+    console.error("Failed to fetch blog stats:", err);
+    res.status(500).json({ error: { message: "Failed to load blog stats." } });
+  }
 });
 
 if (!process.env.VERCEL) {
