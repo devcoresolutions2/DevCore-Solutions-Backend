@@ -356,3 +356,180 @@ adminContentRouter.delete(
     }
   },
 );
+
+const LABEL_TO_CATEGORY: Record<string, "SAAS" | "ENTERPRISE_WEB" | "ECOMMERCE" | "AI_AUTOMATION" | "MOBILE" | "OTHER"> = {
+  saas: "SAAS",
+  "enterprise web": "ENTERPRISE_WEB",
+  "e-commerce": "ECOMMERCE",
+  ecommerce: "ECOMMERCE",
+  "ai automation": "AI_AUTOMATION",
+  mobile: "MOBILE",
+  other: "OTHER",
+};
+
+// ─── ADMIN SHOWCASE (LAUNCHES) CRUD ──────────────────────────────────────────
+
+adminContentRouter.get(
+  "/showcase",
+  requireAdminSession(["SUPER_ADMIN", "EDITOR"]),
+  async (_req: AuthenticatedAdminRequest, res: Response) => {
+    try {
+      const items = await prisma.showcaseProduct.findMany({
+        where: { deletedAt: null },
+        orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }],
+      });
+      return res.json({ items });
+    } catch (err) {
+      console.error("List showcase error:", err);
+      return res.status(500).json({ error: { message: "Failed to load launches." } });
+    }
+  },
+);
+
+adminContentRouter.post(
+  "/showcase",
+  requireAdminSession(["SUPER_ADMIN", "EDITOR"]),
+  async (req: AuthenticatedAdminRequest, res: Response) => {
+    try {
+      const { name, tagline, description, category, techStack, liveUrl, coverImage, featuredOnHome } = req.body || {};
+      if (!name?.trim() || !tagline?.trim()) {
+        return res.status(400).json({ error: { message: "Name and tagline are required." } });
+      }
+      const baseSlug = String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const existing = await prisma.showcaseProduct.findUnique({ where: { slug: baseSlug } });
+      const slug = existing ? `${baseSlug}-${Date.now().toString(36)}` : baseSlug || `launch-${Date.now()}`;
+
+      const catKey = String(category || "saas").trim().toLowerCase();
+      const mappedCat = LABEL_TO_CATEGORY[catKey] || "SAAS";
+      const tags = Array.isArray(techStack)
+        ? techStack.map((t) => String(t).trim()).filter(Boolean)
+        : String(techStack || "").split(",").map((t) => t.trim()).filter(Boolean);
+
+      const created = await prisma.showcaseProduct.create({
+        data: {
+          slug,
+          name: String(name).trim(),
+          tagline: String(tagline).trim(),
+          shortDescription: String(description || tagline).trim(),
+          fullDescription: String(description || tagline).trim(),
+          coverImageUrl: String(coverImage || "/images/dinedesk-cover.jpg").trim(),
+          coverImageId: `showcase-${Date.now()}`,
+          coverImageWidth: 1200,
+          coverImageHeight: 675,
+          coverImageAlt: String(name).trim(),
+          category: mappedCat,
+          techTags: tags,
+          liveUrl: String(liveUrl || "https://dev-core-solutions-frontend.vercel.app").trim(),
+          badge: "NEW",
+          launchDate: new Date(),
+          featuredOnHome: featuredOnHome !== undefined ? Boolean(featuredOnHome) : true,
+          status: "PUBLISHED",
+          publishedAt: new Date(),
+          authorId: req.authUser!.id,
+        },
+      });
+
+      return res.status(201).json({ item: created });
+    } catch (err) {
+      console.error("Create showcase error:", err);
+      return res.status(500).json({ error: { message: "Failed to create launch." } });
+    }
+  },
+);
+
+adminContentRouter.delete(
+  "/showcase/:id",
+  requireAdminSession(["SUPER_ADMIN", "EDITOR"]),
+  async (req: AuthenticatedAdminRequest, res: Response) => {
+    try {
+      const id = String(req.params.id || "");
+      await prisma.showcaseProduct.update({ where: { id }, data: { deletedAt: new Date() } });
+      return res.json({ deleted: true, id });
+    } catch (err) {
+      console.error("Delete showcase error:", err);
+      return res.status(500).json({ error: { message: "Failed to delete launch." } });
+    }
+  },
+);
+
+// ─── ADMIN PORTFOLIO PROJECTS CRUD ───────────────────────────────────────────
+
+adminContentRouter.get(
+  "/projects",
+  requireAdminSession(["SUPER_ADMIN", "EDITOR"]),
+  async (_req: AuthenticatedAdminRequest, res: Response) => {
+    try {
+      const items = await prisma.project.findMany({
+        where: { deletedAt: null },
+        orderBy: [{ displayOrder: "asc" }, { createdAt: "desc" }],
+      });
+      return res.json({ items });
+    } catch (err) {
+      console.error("List projects error:", err);
+      return res.status(500).json({ error: { message: "Failed to load projects." } });
+    }
+  },
+);
+
+adminContentRouter.post(
+  "/projects",
+  requireAdminSession(["SUPER_ADMIN", "EDITOR"]),
+  async (req: AuthenticatedAdminRequest, res: Response) => {
+    try {
+      const { title, summary, category, techStack, challenge, solution, features, liveUrl, coverImage } = req.body || {};
+      if (!title?.trim() || !summary?.trim()) {
+        return res.status(400).json({ error: { message: "Project title and summary are required." } });
+      }
+      const baseSlug = String(title).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const existing = await prisma.project.findUnique({ where: { slug: baseSlug } });
+      const slug = existing ? `${baseSlug}-${Date.now().toString(36)}` : baseSlug || `project-${Date.now()}`;
+
+      const catKey = String(category || "saas").trim().toLowerCase();
+      const mappedCat = LABEL_TO_CATEGORY[catKey] || "SAAS";
+      const tags = Array.isArray(techStack)
+        ? techStack.map((t) => String(t).trim()).filter(Boolean)
+        : String(techStack || "").split(",").map((t) => t.trim()).filter(Boolean);
+      const featList = Array.isArray(features)
+        ? features.map((f) => String(f).trim()).filter(Boolean)
+        : String(features || "").split(",").map((f) => f.trim()).filter(Boolean);
+
+      const created = await prisma.project.create({
+        data: {
+          slug,
+          title: String(title).trim(),
+          summary: String(summary).trim(),
+          category: mappedCat,
+          techTags: tags,
+          coverImageUrl: String(coverImage || "/images/dinedesk-cover.jpg").trim(),
+          coverImageId: `project-${Date.now()}`,
+          challenge: challenge ? String(challenge).trim() : String(summary).trim(),
+          solution: solution ? String(solution).trim() : String(summary).trim(),
+          features: featList,
+          liveUrl: liveUrl ? String(liveUrl).trim() : null,
+          featured: true,
+          status: "PUBLISHED",
+        },
+      });
+
+      return res.status(201).json({ item: created });
+    } catch (err) {
+      console.error("Create project error:", err);
+      return res.status(500).json({ error: { message: "Failed to create project." } });
+    }
+  },
+);
+
+adminContentRouter.delete(
+  "/projects/:id",
+  requireAdminSession(["SUPER_ADMIN", "EDITOR"]),
+  async (req: AuthenticatedAdminRequest, res: Response) => {
+    try {
+      const id = String(req.params.id || "");
+      await prisma.project.update({ where: { id }, data: { deletedAt: new Date() } });
+      return res.json({ deleted: true, id });
+    } catch (err) {
+      console.error("Delete project error:", err);
+      return res.status(500).json({ error: { message: "Failed to delete project." } });
+    }
+  },
+);
