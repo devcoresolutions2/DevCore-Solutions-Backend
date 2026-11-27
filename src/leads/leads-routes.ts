@@ -923,3 +923,37 @@ adminLeadsRouter.post("/:id/notes", async (req: AdminAuthRequest, res: Response)
     return res.status(500).json({ error: { message: "Failed to save internal note." } });
   }
 });
+
+// 3H. DELETE LEAD PERMANENTLY
+adminLeadsRouter.delete("/:id", async (req: AdminAuthRequest, res: Response) => {
+  const actor = req.authUser;
+  const id = String(req.params.id || "");
+
+  try {
+    const existing = await prisma.lead.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "Lead not found." } });
+    }
+
+    await prisma.lead.delete({ where: { id } });
+
+    await prisma.auditLog.create({
+      data: {
+        actorId: actor.id,
+        action: "LEAD_DELETED",
+        entity: "Lead",
+        entityId: id,
+        meta: { name: existing.name, email: existing.email },
+      },
+    }).catch(() => {});
+
+    return res.json({ success: true, deleted: true, id });
+  } catch (error) {
+    console.error("[Admin:Leads:Delete] Error:", error);
+    return res.status(500).json({ error: { message: "Failed to delete lead." } });
+  }
+});
