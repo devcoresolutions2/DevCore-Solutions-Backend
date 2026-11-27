@@ -634,3 +634,54 @@ adminUsersRouter.post(
     return res.json({ succeeded, skipped });
   },
 );
+
+// ─── DELETE USER PERMANENTLY (SUPER_ADMIN ONLY) ───────────────────────────────
+adminUsersRouter.delete(
+  "/:id",
+  requireAdminSession(["SUPER_ADMIN"]),
+  async (req: AuthenticatedAdminRequest, res: Response) => {
+    const targetId = String(req.params.id || "");
+
+    if (targetId === req.authUser!.id) {
+      return res.status(400).json({
+        error: { code: "SELF_DELETE_BLOCKED", message: "You cannot delete your own account." },
+      });
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id: targetId },
+      select: { id: true, name: true, email: true, role: true, isActive: true },
+    });
+
+    if (!target) {
+      return res.status(404).json({ error: { code: "NOT_FOUND", message: "User not found." } });
+    }
+
+    if (target.role === "SUPER_ADMIN" && target.isActive) {
+      const superCount = await prisma.user.count({
+        where: { role: "SUPER_ADMIN", isActive: true },
+      });
+      if (superCount <= 1) {
+        return res.status(400).json({
+          error: {
+            code: "LAST_SUPER_ADMIN",
+            message: "Cannot delete the last active SUPER_ADMIN account.",
+          },
+        });
+      }
+    }
+
+    await prisma.user.delete({ where: { id: targetId } });
+
+    await recordAdminAudit({
+      actorId: req.authUser!.id,
+      action: "USER_DELETED",
+      entity: "User",
+      entityId: targetId,
+      meta: { name: target.name, email: target.email, role: target.role },
+      req,
+    });
+
+    return res.json({ deleted: true, id: targetId });
+  },
+);
